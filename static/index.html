@@ -1,0 +1,41 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>成语·科普 短视频生成器</title>
+<style>
+body{margin:0;font-family:"Noto Serif CJK SC","PingFang SC","Microsoft YaHei",serif;background:#f3ede0;color:#2a2a2e}
+.wrap{max-width:820px;margin:0 auto;padding:32px 20px}
+h1{font-size:32px;margin:0 0 4px;letter-spacing:4px}h1 span{color:#af281e}
+.sub{color:#777;margin-bottom:24px}.card{background:#fffdf7;border-radius:14px;padding:22px;box-shadow:0 2px 12px #0001;margin-bottom:18px}
+input[type=text]{width:100%;box-sizing:border-box;font-size:20px;padding:12px 14px;border:1px solid #d8cfbd;border-radius:10px;background:#fff}
+.row{display:flex;gap:24px;flex-wrap:wrap;margin:16px 0}.row label{cursor:pointer}
+button{background:#af281e;color:#fff;border:0;border-radius:10px;font-size:18px;padding:12px 28px;cursor:pointer}button:disabled{opacity:.5}
+.chips span{display:inline-block;background:#efe6d3;border-radius:16px;padding:4px 12px;margin:4px 6px 0 0;cursor:pointer;font-size:14px}
+.bar{height:12px;background:#eee4d0;border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#af281e;transition:width .4s}
+video{width:100%;border-radius:10px;background:#000}.muted{color:#888;font-size:13px}a.dl{color:#af281e}
+ol{padding-left:20px;line-height:1.8}
+</style></head><body><div class="wrap">
+<h1>成语<span>·</span>科普 短视频</h1><div class="sub">输入一个成语或生活常识问题，自动生成约1分钟的配音字幕视频</div>
+<div class="card">
+<input id="topic" type="text" placeholder="例如：刻舟求剑 / 为什么天空是蓝色的" maxlength="40">
+<div class="chips" id="chips"></div>
+<div class="row"><b>类型：</b><label><input type="radio" name="kind" value="chengyu" checked> 成语故事</label><label><input type="radio" name="kind" value="kepu"> 生活常识科普</label></div>
+<div class="row"><b>画风：</b><label><input type="radio" name="style" value="ink" checked> 古风水墨</label><label><input type="radio" name="style" value="kids"> 儿童绘本</label></div>
+<button id="go">生成视频</button> <span class="muted" id="cfg"></span>
+</div>
+<div class="card" id="pcard" hidden><div id="msg">排队中…</div><br><div class="bar"><i id="bar"></i></div><div class="muted" id="pct"></div></div>
+<div class="card" id="rcard" hidden><video id="vid" controls></video><p><a class="dl" id="dl">⬇ 下载 MP4</a> <span class="muted" id="meta"></span></p><ol id="script"></ol></div>
+</div><script>
+const $=id=>document.getElementById(id);
+["刻舟求剑","守株待兔","为什么天空是蓝色的","为什么要多喝水"].forEach(t=>{const s=document.createElement('span');s.textContent=t;s.onclick=()=>{$('topic').value=t;document.querySelector(`[name=kind][value=${t.startsWith('为什么')?'kepu':'chengyu'}]`).checked=true};$('chips').append(s)});
+fetch('/api/config').then(r=>r.json()).then(c=>$('cfg').textContent=`脚本：${c.llm?'大模型':'模板/内置'}　图片：${c.image?'AI生图':'占位图'}　配音：${c.voice}`);
+const val=n=>document.querySelector(`[name=${n}]:checked`).value;
+$('go').onclick=async()=>{const topic=$('topic').value.trim();if(!topic)return alert('请输入主题');
+ $('go').disabled=true;$('rcard').hidden=true;$('pcard').hidden=false;$('bar').style.width='0';
+ const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,kind:val('kind'),style:val('style')})});
+ if(!r.ok){alert((await r.json()).detail);$('go').disabled=false;return}
+ const id=(await r.json()).id;
+ const poll=async()=>{const j=await (await fetch('/api/jobs/'+id)).json();$('msg').textContent=j.message;$('bar').style.width=j.progress+'%';$('pct').textContent=j.progress+'%';
+  if(j.status==='done'){$('go').disabled=false;$('rcard').hidden=false;$('vid').src=j.video;$('dl').href=j.video+'?download=1';
+   $('meta').textContent=`时长 ${j.duration}s · 脚本 ${j.script_source} · ${j.narration?'含配音':'无配音'}`;
+   $('script').innerHTML='';j.script.scenes.forEach(s=>{const li=document.createElement('li');li.textContent=s.narration;$('script').append(li)})}
+  else if(j.status==='error'){$('go').disabled=false;alert(j.message)} else setTimeout(poll,1500)};poll()};
+</script></body></html>
