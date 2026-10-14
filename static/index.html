@@ -166,6 +166,76 @@
       color: #B91C1C;
     }
 
+    /* 语言模式选择器 */
+    .lang-selector-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      margin-bottom: 4px;
+    }
+    .lang-btn {
+      flex: 1;
+      padding: 9px 12px;
+      background: #F8FAFC;
+      border: 1.5px solid #E2E8F0;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .lang-btn:hover { background: #F1F5F9; border-color: #CBD5E1; }
+    .lang-btn.active {
+      background: #EFF6FF;
+      border-color: #3B82F6;
+      color: #1D4ED8;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+    }
+    .lang-btn .badge-rec {
+      font-size: 10px;
+      background: #10B981;
+      color: #FFF;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-weight: 700;
+    }
+
+    /* 物料切换选项卡 */
+    .pub-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #E2E8F0;
+      padding-bottom: 8px;
+    }
+    .pub-tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748B;
+      padding: 5px 12px;
+      cursor: pointer;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    .pub-tab-btn:hover { color: #1E293B; background: #F1F5F9; }
+    .pub-tab-btn.active {
+      color: #2563EB;
+      background: #EFF6FF;
+      border-color: #BFDBFE;
+      font-weight: 700;
+    }
+
     .quick-chips { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
     .chip {
       background: var(--accent);
@@ -535,6 +605,20 @@
         </div>
       </div>
 
+      <!-- 语言版本与出海模式选择器 -->
+      <div class="lang-selector-group">
+        <div id="langBoth" class="lang-btn active" onclick="switchLang('both')">
+          <span>🚀 中英双版本同时生成</span>
+          <span class="badge-rec">首选推荐 · 双成片+双物料</span>
+        </div>
+        <div id="langCn" class="lang-btn" onclick="switchLang('cn')">
+          <span>🇨🇳 纯中文版（国内抖音/小红书）</span>
+        </div>
+        <div id="langEn" class="lang-btn" onclick="switchLang('en')">
+          <span>🇺🇸 纯英文出海版（TikTok/Shorts）</span>
+        </div>
+      </div>
+
       <div class="input-group">
         <input type="text" id="topicInput" placeholder="例如：为什么刚睡醒眼睛里会有眼屎？为什么洗澡时间长了手指会起皱？为什么衣服拉链能咬紧？" maxlength="40">
         <button class="btn-primary" id="genBtn" onclick="triggerGenerate()">开始一键生成</button>
@@ -591,6 +675,27 @@
 
   <script>
     let currentMode = 'kids'; // 'kids' | 'adult' | 'idiom'
+    let currentLang = 'both'; // 'both' | 'cn' | 'en'
+
+    function switchLang(lang) {
+      if (lang !== 'both' && lang !== 'cn' && lang !== 'en') lang = 'both';
+      currentLang = lang;
+      ['langBoth', 'langCn', 'langEn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('active');
+      });
+      if (lang === 'both') {
+        document.getElementById('langBoth').classList.add('active');
+        showToast('🚀 已选择「中英双版本同时生成」：一次插画绘制，生成中文与英文出海两套独立成片！');
+      } else if (lang === 'cn') {
+        document.getElementById('langCn').classList.add('active');
+        showToast('🇨🇳 已选择「纯中文版」');
+      } else if (lang === 'en') {
+        document.getElementById('langEn').classList.add('active');
+        showToast('🇺🇸 已选择「纯英文出海版」（TikTok/Shorts配音字幕）');
+      }
+    }
+
     let g_topics300 = {};
     let g_topicsKids80 = {};
     let g_topicsIdiom300 = {};
@@ -842,16 +947,25 @@
       doClipboardCopy(btn, text, '作品描述与话题');
     }
 
-    async function openInFinder(jid) {
+    function switchPubTab(btn, targetId) {
+      const parent = btn.closest('.publish-box');
+      parent.querySelectorAll('.pub-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      parent.querySelectorAll('.pub-content-tab').forEach(tab => tab.style.display = 'none');
+      const target = parent.querySelector('#' + targetId);
+      if (target) target.style.display = 'block';
+    }
+
+    async function openInFinder(jid, lang = 'cn') {
       try {
         const res = await fetch('/api/open_finder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: jid })
+          body: JSON.stringify({ id: jid, lang: lang })
         });
         const data = await res.json();
         if (data.status === 'success') {
-          showToast(`已在访达 (Finder) 中高亮定位成片视频！`);
+          showToast(`已在访达 (Finder) 中高亮定位${lang === 'en' ? '英文版' : '中文版'}成片！`);
         } else {
           alert('打开访达失败: ' + (data.detail || '未知错误'));
         }
@@ -864,27 +978,33 @@
       document.getElementById('topicInput').value = t;
     }
 
-    function toggleVideo(btn, jid, videoUrl) {
+    function toggleVideo(btn, jid, videoUrl, lang = 'cn') {
       const card = btn.closest('.project-card');
       let previewBox = card.querySelector('.video-preview-box');
-      if (previewBox) {
+      if (previewBox && previewBox.dataset.lang === lang) {
         previewBox.remove();
-        btn.innerText = '👁️ 在线预览成片';
+        btn.innerText = (lang === 'en') ? '👁️ 预览英文出海版' : '👁️ 预览中文成片';
       } else {
+        if (previewBox) previewBox.remove();
+        card.querySelectorAll('.btn-preview-video').forEach(b => {
+          b.innerText = (b.dataset.lang === 'en') ? '👁️ 预览英文出海版' : '👁️ 预览中文成片';
+        });
         previewBox = document.createElement('div');
         previewBox.className = 'video-preview-box';
+        previewBox.dataset.lang = lang;
         previewBox.innerHTML = `
           <video controls autoplay src="${videoUrl}"></video>
-          <div id="scriptBox_${jid}" class="script-list">正在加载故事分镜剧本...</div>
+          <div id="scriptBox_${jid}_${lang}" class="script-list">正在加载故事分镜剧本...</div>
         `;
         card.querySelector('.publish-box').after(previewBox);
         btn.innerText = '✕ 收起预览';
-        // 异步获取剧本分镜
+        // 异步获取分镜脚本
         fetch('/api/jobs/' + jid).then(r => r.json()).then(j => {
-          const sbox = document.getElementById('scriptBox_' + jid);
+          const sbox = document.getElementById(`scriptBox_${jid}_${lang}`);
           if (j.script && j.script.scenes && j.script.scenes.length) {
-            sbox.innerHTML = '<b>📜 旁白分镜脚本：</b><ol style="margin-top:6px; padding-left:20px;">' +
-              j.script.scenes.map(s => `<li>${s.narration}</li>`).join('') + '</ol>';
+            const isEn = (lang === 'en');
+            sbox.innerHTML = `<b>📜 ${isEn ? 'English Narration Scenes' : '旁白分镜脚本'}：</b><ol style="margin-top:6px; padding-left:20px;">` +
+              j.script.scenes.map(s => `<li>${isEn && s.narration_en ? s.narration_en : s.narration}</li>`).join('') + '</ol>';
           } else {
             sbox.innerHTML = '暂无分镜文本';
           }
@@ -903,15 +1023,28 @@
         }
 
         container.innerHTML = list.map(item => {
-          const hasVideo = (item.status === 'done' && item.video);
+          const hasVideo = (item.status === 'done' && (item.video || item.video_en));
           const pub = item.publish_info || {
             title: item.topic,
             char_count: item.topic.length,
             full_desc: item.topic,
             tags: ["#科普", "#成语故事", "#原来如此"]
           };
+          const pub_en = item.publish_info_en || {
+            title: `The Secret Behind ${item.topic} Revealed!`,
+            description: `Ever wondered about ${item.topic}? Here is the fascinating science and story behind it. Follow for more mind-blowing daily facts!`,
+            tags: ["#ScienceFacts", "#DidYouKnow", "#LearnOnTikTok", "#ViralVideo"]
+          };
+
           const badgeClass = item.status === 'done' ? '' : (item.status === 'error' ? 'error' : 'running');
-          const badgeText = item.status === 'done' ? '🎬 1080P成片就绪' : (item.status === 'error' ? '❌ 生成失败' : '⏳ 正在处理中');
+          let badgeText = '⏳ 正在处理中';
+          if (item.status === 'done') {
+            if (item.has_en && item.video) badgeText = '🎬 中英双版本成片就绪';
+            else if (item.has_en) badgeText = '🇺🇸 英文出海版成片就绪';
+            else badgeText = '🇨🇳 中文成片就绪';
+          } else if (item.status === 'error') {
+            badgeText = '❌ 生成失败';
+          }
 
           return `
             <div class="project-card">
@@ -920,33 +1053,66 @@
                 <div style="display:flex; align-items:center; gap:8px;">
                   <span class="status-badge ${badgeClass}">${badgeText}</span>
                   ${item.status === 'error' ? `
-                    <button class="action-link" style="background:#FEE2E2; color:#B91C1C; padding:4px 10px; font-size:12px; border:1px solid #FCA5A5; font-weight:bold;" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}')">
+                    <button class="action-link" style="background:#FEE2E2; color:#B91C1C; padding:4px 10px; font-size:12px; border:1px solid #FCA5A5; font-weight:bold;" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}', '${item.lang || 'both'}')">
                       🔄 立即重新生成
                     </button>
                   ` : ''}
                 </div>
               </div>
 
-              <!-- 抖音发布物料盒 -->
+              <!-- 双语发布物料盒 -->
               <div class="publish-box">
-                <div class="pub-row">
-                  <span class="pub-label">🎯 爆款标题</span>
-                  <div class="pub-content" style="display:flex; align-items:center; gap:8px;">
-                    <span class="title-text">${pub.title}</span>
-                    <span class="char-badge">${pub.char_count}/30字</span>
-                    <button class="btn-copy" onclick="copyTitle(this)">📋 复制标题</button>
+                <div class="pub-tabs">
+                  <button class="pub-tab-btn active" onclick="switchPubTab(this, 'pub_cn_${item.id}')">🇨🇳 抖音/小红书中文物料</button>
+                  <button class="pub-tab-btn" onclick="switchPubTab(this, 'pub_en_${item.id}')">🇺🇸 TikTok英文出海物料</button>
+                </div>
+
+                <!-- 1. 中文发布物料 -->
+                <div id="pub_cn_${item.id}" class="pub-content-tab">
+                  <div class="pub-row">
+                    <span class="pub-label">🎯 爆款标题</span>
+                    <div class="pub-content" style="display:flex; align-items:center; gap:8px;">
+                      <span class="title-text">${pub.title}</span>
+                      <span class="char-badge">${pub.char_count}/30字</span>
+                      <button class="btn-copy" onclick="copyTitle(this)">📋 复制标题</button>
+                    </div>
+                  </div>
+
+                  <div class="pub-row">
+                    <span class="pub-label">📝 作品描述</span>
+                    <div class="pub-content">
+                      <div class="desc-text">${pub.full_desc}</div>
+                      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+                        <div class="tags-container">
+                          ${(pub.tags || []).map(t => `<span class="pub-tag">${t}</span>`).join('')}
+                        </div>
+                        <button class="btn-copy" onclick="copyDesc(this)">📋 复制描述与话题</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div class="pub-row">
-                  <span class="pub-label">📝 作品描述</span>
-                  <div class="pub-content">
-                    <div class="desc-text">${pub.full_desc}</div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-                      <div class="tags-container">
-                        ${(pub.tags || []).map(t => `<span class="pub-tag">${t}</span>`).join('')}
+                <!-- 2. TikTok 英文出海物料 -->
+                <div id="pub_en_${item.id}" class="pub-content-tab" style="display:none;">
+                  <div class="pub-row">
+                    <span class="pub-label">🎯 TikTok Title</span>
+                    <div class="pub-content" style="display:flex; align-items:center; gap:8px;">
+                      <span class="title-text">${pub_en.title || ''}</span>
+                      <span class="char-badge">${(pub_en.title || '').length} 字符</span>
+                      <button class="btn-copy" onclick="copyTitle(this)">📋 复制英文标题</button>
+                    </div>
+                  </div>
+
+                  <div class="pub-row">
+                    <span class="pub-label">📝 Caption & Tags</span>
+                    <div class="pub-content">
+                      <div class="desc-text">${pub_en.description || ''}\n\n${(pub_en.tags || []).join(' ')}</div>
+                      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+                        <div class="tags-container">
+                          ${(pub_en.tags || []).map(t => `<span class="pub-tag">${t}</span>`).join('')}
+                        </div>
+                        <button class="btn-copy" onclick="copyDesc(this)">📋 复制TikTok文案与Tags</button>
                       </div>
-                      <button class="btn-copy" onclick="copyDesc(this)">📋 复制描述与话题</button>
                     </div>
                   </div>
                 </div>
@@ -955,16 +1121,28 @@
               <!-- 底部操作区 -->
               <div class="project-actions">
                 ${hasVideo ? `
-                  <button class="action-link secondary" onclick="openInFinder('${item.id}')">
-                    📂 在访达中定位成片
+                  ${item.video ? `
+                    <button class="action-link btn-preview-video" data-lang="cn" onclick="toggleVideo(this, '${item.id}', '${item.video}', 'cn')">
+                      👁️ 预览中文成片
+                    </button>
+                    <a href="${item.video}&download=1" class="action-link" style="background:#E8F5E9; color:#1B5E20;">
+                      ⬇️ 下载中文版 (${item.duration ? item.duration + 's' : '成片'})
+                    </a>
+                  ` : ''}
+
+                  ${item.video_en ? `
+                    <button class="action-link btn-preview-video" data-lang="en" style="background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE;" onclick="toggleVideo(this, '${item.video_en}', 'en')">
+                      👁️ 预览英文出海版
+                    </button>
+                    <a href="${item.video_en}&download=1" class="action-link" style="background:#E0F2FE; color:#0369A1; font-weight:600;">
+                      ⬇️ 下载英文出海版 (${item.duration_en ? item.duration_en + 's' : '出海成片'})
+                    </a>
+                  ` : ''}
+
+                  <button class="action-link secondary" onclick="openInFinder('${item.id}', '${item.has_en ? 'en' : 'cn'}')">
+                    📂 在访达中定位
                   </button>
-                  <button class="action-link" onclick="toggleVideo(this, '${item.id}', '${item.video}')">
-                    👁️ 在线预览成片
-                  </button>
-                  <a href="${item.video}?download=1" class="action-link" style="background:#E8F5E9; color:#1B5E20;">
-                    ⬇️ 下载 MP4 (${item.duration ? item.duration + 's' : '成片'})
-                  </a>
-                  <button class="action-link secondary" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}')">
+                  <button class="action-link secondary" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}', '${item.lang || 'both'}')">
                     🔄 再次生成
                   </button>
                 ` : `
@@ -973,7 +1151,7 @@
                       ⚠️ 状态：${item.message}
                     </span>
                     <div style="display:flex; gap:8px;">
-                      <button class="action-link" style="background:#2563EB; color:#FFF; font-weight:bold; padding:6px 14px;" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}')">
+                      <button class="action-link" style="background:#2563EB; color:#FFF; font-weight:bold; padding:6px 14px;" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}', '${item.lang || 'both'}')">
                         🔄 重新生成此视频
                       </button>
                     </div>
@@ -988,24 +1166,18 @@
       }
     }
 
-    function retryJob(topic, kind, style) {
+    function retryJob(topic, kind, style, lang = 'both') {
       const input = document.getElementById('topicInput');
-      if (input) {
-        input.value = topic;
-      }
+      if (input) input.value = topic;
       let mode = 'kids';
       if (kind === 'chengyu') mode = 'idiom';
       else if (style === 'ink') mode = 'adult';
       
-      if (typeof setMode === 'function') {
-        setMode(mode);
-      }
+      switchMode(mode);
+      switchLang(lang || 'both');
       
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      
-      setTimeout(() => {
-        triggerGenerate();
-      }, 350);
+      setTimeout(() => { triggerGenerate(); }, 350);
     }
 
     function escapeQuotes(str) {
@@ -1046,7 +1218,7 @@
         const res = await fetch('/api/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: topic, mode: currentMode })
+          body: JSON.stringify({ topic: topic, mode: currentMode, lang: currentLang })
         });
 
         if (res.status === 401) {
@@ -1086,7 +1258,10 @@
               progressStep.innerText = '成片生成完成！';
               box.style.background = '#E8F5E9';
               box.style.color = '#1B5E20';
-              box.innerHTML = `✅ 恭喜！《${topic}》成片已生成完成！时长：${task.duration}秒<br><a href="${task.video}" target="_blank" style="font-weight:bold; color:#0D47A1; margin-top:8px; display:inline-block;">👉 点击播放并下载视频成片 ↗</a>`;
+              const isDual = task.has_en && task.video;
+              box.innerHTML = `✅ 恭喜！《${topic}》${isDual ? '中英双版本独立成片' : '成片'}已生成完成！时长：${task.duration || task.duration_en}秒<br>` +
+                (task.video ? `<a href="${task.video}" target="_blank" style="font-weight:bold; color:#0D47A1; margin-right:12px; margin-top:8px; display:inline-block;">👉 播放中文版成片 ↗</a>` : '') +
+                (task.video_en ? `<a href="${task.video_en}" target="_blank" style="font-weight:bold; color:#1D4ED8; margin-top:8px; display:inline-block;">👉 播放英文出海版 ↗</a>` : '');
               loadProjects();
               initUser();
               loadAllTopics();

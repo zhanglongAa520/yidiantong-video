@@ -41,6 +41,10 @@ def init_db():
             else: c.execute("INSERT INTO users(username,pw_hash,is_admin,created) VALUES(?,?,1,?)", (au, h, time.time()))
         # 重启恢复：中断的任务重新排队
         c.execute("UPDATE jobs SET status='queued', progress=0, message='服务重启，重新排队' WHERE status='running'")
+        # 兼容旧表升级：检查并自动添加 lang 字段
+        cols = [col[1] for col in c.execute("PRAGMA table_info(jobs)").fetchall()]
+        if "lang" not in cols:
+            c.execute("ALTER TABLE jobs ADD COLUMN lang TEXT DEFAULT 'both'")
         return [r["id"] for r in c.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY created")]
 
 def hashpw(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt(12)).decode()
@@ -199,12 +203,32 @@ def filter_uncreated_topics(data_dict: dict) -> dict:
     return filtered
 
 def job_dict(r):
-    """将数据库任务记录转换为前端展示所需的标准字典对象，并自动附加抖音发布物料与视频播放链接。"""
-    d = dict(r); d["log"] = json.loads(d["log"] or "[]"); res = json.loads(d.pop("result") or "{}"); d.update(res)
-    if d["status"] == "done": d["video"] = f"/api/jobs/{d['id']}/video"
+    """将数据库任务记录转换为前端展示所需的标准字典对象，并自动附加抖音与 TikTok 双语发布物料与视频播放链接。"""
+    d = dict(r)
+    d["log"] = json.loads(d["log"] or "[]")
+    res = json.loads(d.pop("result") or "{}")
+    d.update(res)
+    jid = d["id"]
+    if d["status"] == "done":
+        has_cn = d.get("has_cn", True)
+        has_en = d.get("has_en", False)
+        if has_cn or os.path.exists(os.path.join(OUT, f"{jid}.mp4")):
+            d["video"] = f"/api/jobs/{jid}/video?lang=cn"
+        if has_en or os.path.exists(os.path.join(OUT, f"{jid}_en.mp4")):
+            d["video_en"] = f"/api/jobs/{jid}/video?lang=en"
+            d["has_en"] = True
     script_obj = d.get("script")
     d["publish_info"] = get_douyin_publish_info(d["topic"], d.get("kind", "chengyu"), d.get("style", "ink"), script_obj)
-    d.pop("user_id", None); return d
+    if script_obj and script_obj.get("publish_info_en"):
+        d["publish_info_en"] = script_obj["publish_info_en"]
+    else:
+        d["publish_info_en"] = {
+            "title": f"The Secret Behind {d['topic']} Revealed!",
+            "description": f"Ever wondered about {d['topic']}? Here is the fascinating science and story behind it. Follow for more mind-blowing daily facts!",
+            "tags": ["#ScienceFacts", "#DidYouKnow", "#LearnOnTikTok", "#ViralVideo", "#StoryTime"]
+        }
+    d.pop("user_id", None)
+    return d
 
 def update_job(jid, **kw):
     with LOCK, db() as c:
@@ -221,7 +245,8 @@ def worker():
             if p is not None: kw["progress"] = min(p, 99)
             update_job(jid, **kw)
         try:
-            res = pipeline.build(r["topic"], r["kind"], r["style"], os.path.join(OUT, jid), os.path.join(OUT, f"{jid}.mp4"), prog)
+            lang_mode = r["lang"] if "lang" in r.keys() and r["lang"] else "both"
+            res = pipeline.build(r["topic"], r["kind"], r["style"], os.path.join(OUT, jid), os.path.join(OUT, f"{jid}.mp4"), prog, lang_mode=lang_mode)
             update_job(jid, status="done", progress=100, message="完成", result=json.dumps(res, ensure_ascii=False))
         except Exception as e:
             traceback.print_exc(); update_job(jid, status="error", message=f"失败：{e}")
@@ -310,6 +335,7 @@ class Req(BaseModel):
     kind: str = "chengyu"
     style: str = "ink"
     mode: str | None = None
+    lang: str = "both"
 
 CREATE_LOCK = threading.Lock()
 @app.post("/api/jobs")
@@ -323,6 +349,7 @@ def create(r: Req, u=Depends(current_user)):
     elif r.mode == "idiom":
         r.kind = "chengyu"; r.style = "ink"
     if r.kind not in ("chengyu", "kepu") or r.style not in ("ink", "kids"): raise HTTPException(400, "参数错误")
+    lang_mode = r.lang if r.lang in ("both", "cn", "en") else "both"
     with CREATE_LOCK:
         qi = quota_info(u)
         if qi["remaining"] is not None and qi["remaining"] <= 0:
@@ -331,8 +358,8 @@ def create(r: Req, u=Depends(current_user)):
             if not u["is_admin"] and c.execute("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running')", (u["id"],)).fetchone():
                 raise HTTPException(429, "你已有一个视频正在生成，请等待完成后再提交")
             jid = uuid.uuid4().hex[:12]
-            c.execute("INSERT INTO jobs(id,user_id,topic,kind,style,status,progress,message,created,day) VALUES(?,?,?,?,?,'queued',0,?,?,?)",
-                      (jid, u["id"], t, r.kind, r.style, f"排队中（前面{Q.qsize()}个）", time.time(), today()))
+            c.execute("INSERT INTO jobs(id,user_id,topic,kind,style,lang,status,progress,message,created,day) VALUES(?,?,?,?,?,?,'queued',0,?,?,?)",
+                      (jid, u["id"], t, r.kind, r.style, lang_mode, f"排队中（前面{Q.qsize()}个）", time.time(), today()))
     Q.put(jid); return get(jid, u)
 
 def own_job(jid, u):
@@ -350,10 +377,15 @@ def list_jobs(u=Depends(current_user)):
 def get(jid: str, u=Depends(current_user)): return job_dict(own_job(jid, u))
 
 @app.get("/api/jobs/{jid}/video")
-def video(jid: str, download: int = 0, u=Depends(current_user)):
-    r = own_job(jid, u); p = os.path.join(OUT, f"{jid}.mp4")
-    if not os.path.exists(p): raise HTTPException(404, "视频不存在")
-    return FileResponse(p, media_type="video/mp4", filename=f"{r['topic']}.mp4" if download else None)
+def video(jid: str, lang: str = "cn", download: int = 0, u=Depends(current_user)):
+    r = own_job(jid, u)
+    filename_suffix = "_en" if lang == "en" else ""
+    p = os.path.join(OUT, f"{jid}{filename_suffix}.mp4")
+    if not os.path.exists(p):
+        p = os.path.join(OUT, f"{jid}.mp4")
+        if not os.path.exists(p): raise HTTPException(404, "视频不存在")
+    display_name = f"{r['topic']}{'_英文出海版' if lang == 'en' else ''}.mp4"
+    return FileResponse(p, media_type="video/mp4", filename=display_name if download else None)
 
 @app.get("/api/config")
 def config(u=Depends(current_user)):
@@ -362,13 +394,17 @@ def config(u=Depends(current_user)):
 
 class OpenFinderReq(BaseModel):
     id: str
+    lang: str = "cn"
 
 @app.post("/api/open_finder")
 def open_finder(req: OpenFinderReq, u=Depends(current_user)):
-    """在 macOS 访达中定位并高亮选中的成片视频文件。"""
+    """在 macOS 访达中定位并高亮选中的成片视频文件（支持中文版与英文出海版）。"""
     job = own_job(req.id, u)
-    p = os.path.join(OUT, f"{job['id']}.mp4")
-    target = p if os.path.exists(p) else os.path.join(OUT, job['id'])
+    target_name = f"{job['id']}_en.mp4" if req.lang == "en" else f"{job['id']}.mp4"
+    p = os.path.join(OUT, target_name)
+    target = p if os.path.exists(p) else os.path.join(OUT, f"{job['id']}.mp4")
+    if not os.path.exists(target):
+        target = os.path.join(OUT, job['id'])
     if not os.path.exists(target):
         raise HTTPException(404, "视频文件不存在")
     try:
