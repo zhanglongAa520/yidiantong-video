@@ -3,3 +3,6 @@ server.log
 __pycache__/
 *.pyc
 .env
+*.db
+*.db-*
+*.sqlite*

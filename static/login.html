@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录 · 成语科普短视频</title><style>
+body{margin:0;font-family:"Noto Serif CJK SC","PingFang SC","Microsoft YaHei",serif;background:#f3ede0;color:#2a2a2e}
+.box{max-width:380px;margin:80px auto;background:#fffdf7;border-radius:14px;padding:28px;box-shadow:0 2px 12px #0001}
+h1{text-align:center;letter-spacing:4px;margin:0 0 20px}h1 span{color:#af281e}
+.tabs{display:flex;margin-bottom:18px}.tabs b{flex:1;text-align:center;padding:8px;cursor:pointer;border-bottom:2px solid #eee}.tabs b.on{border-color:#af281e;color:#af281e}
+input{width:100%;box-sizing:border-box;font-size:17px;padding:11px;border:1px solid #d8cfbd;border-radius:9px;margin-bottom:12px}
+button{width:100%;background:#af281e;color:#fff;border:0;border-radius:9px;font-size:17px;padding:12px;cursor:pointer}
+#err{color:#af281e;min-height:22px;font-size:14px}.tip{color:#888;font-size:13px}
+</style></head><body><div class="box">
+<h1>成语<span>·</span>科普</h1>
+<div class="tabs"><b id="t1" class="on">登录</b><b id="t2">注册</b></div>
+<input id="u" placeholder="用户名" autocomplete="username"><input id="p" type="password" placeholder="密码" autocomplete="current-password">
+<input id="p2" type="password" placeholder="确认密码" hidden autocomplete="new-password">
+<div class="tip" id="tip" hidden>用户名3-20位（字母、数字、下划线或汉字），密码至少8位</div>
+<div id="err"></div><button id="go">登录</button></div><script>
+const $=i=>document.getElementById(i);let reg=false;
+function mode(r){reg=r;$('t1').className=r?'':'on';$('t2').className=r?'on':'';$('p2').hidden=!r;$('tip').hidden=!r;$('go').textContent=r?'注册并登录':'登录';$('err').textContent=''}
+$('t1').onclick=()=>mode(false);$('t2').onclick=()=>mode(true);
+document.onkeydown=e=>{if(e.key==='Enter')$('go').click()};
+$('go').onclick=async()=>{const username=$('u').value.trim(),password=$('p').value;
+ if(reg&&password!==$('p2').value)return $('err').textContent='两次输入的密码不一致';
+ const r=await fetch(reg?'/api/register':'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+ if(r.ok)location.href='/';else{const j=await r.json();$('err').textContent=typeof j.detail==='string'?j.detail:'请填写用户名和密码'}};
+fetch('/api/me').then(r=>{if(r.ok)location.href='/'});
+</script></body></html>

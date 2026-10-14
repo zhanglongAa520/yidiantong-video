@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>用户管理</title><style>
+body{font-family:"Noto Serif CJK SC","PingFang SC",serif;background:#f3ede0;color:#2a2a2e;margin:0}.wrap{max-width:860px;margin:0 auto;padding:30px 20px}
+table{width:100%;border-collapse:collapse;background:#fffdf7;border-radius:12px;overflow:hidden}th,td{padding:10px;border-bottom:1px solid #eee4d0;text-align:left}
+input{width:70px;padding:5px}button{background:#af281e;color:#fff;border:0;border-radius:6px;padding:6px 10px;cursor:pointer}a{color:#af281e}
+</style></head><body><div class="wrap"><h2>用户管理 <small><a href="/">← 返回</a></small></h2><p id="d"></p>
+<table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>今日已用</th><th>累计任务</th><th>每日配额（留空=默认）</th></tr></thead><tbody id="tb"></tbody></table></div><script>
+async function load(){const r=await fetch('/api/admin/users');if(r.status===401)return location.href='/login';if(!r.ok)return document.body.textContent='需要管理员权限';
+ const j=await r.json();document.getElementById('d').textContent=`默认每日配额：${j.default_quota} 次`;const tb=document.getElementById('tb');tb.innerHTML='';
+ j.users.forEach(u=>{const tr=document.createElement('tr');const c=v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)};
+  c(u.id);c(u.username);c(u.is_admin?'管理员':'用户');c(u.today_used);c(u.total_jobs);const td=document.createElement('td');
+  if(u.is_admin)td.textContent='不限';else{const i=document.createElement('input');i.type='number';i.min=0;i.value=u.quota??'';i.placeholder=j.default_quota;
+   const b=document.createElement('button');b.textContent='保存';b.onclick=async()=>{const v=i.value===''?null:+i.value;
+   const r=await fetch(`/api/admin/users/${u.id}/quota`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({quota:v})});alert(r.ok?'已保存':(await r.json()).detail);load()};td.append(i,' ',b)}
+  tr.append(td);tb.append(tr)})}load();
+</script></body></html>

@@ -13,7 +13,7 @@ button{background:#af281e;color:#fff;border:0;border-radius:10px;font-size:18px;
 video{width:100%;border-radius:10px;background:#000}.muted{color:#888;font-size:13px}a.dl{color:#af281e}
 ol{padding-left:20px;line-height:1.8}
 </style></head><body><div class="wrap">
-<h1>成语<span>·</span>科普 短视频</h1><div class="sub">输入一个成语或生活常识问题，自动生成约1分钟的配音字幕视频</div>
+<div id="top" style="float:right;font-size:14px;margin-top:10px"></div><h1>成语<span>·</span>科普 短视频</h1><div class="sub">输入一个成语或生活常识问题，自动生成约1分钟的配音字幕视频</div>
 <div class="card">
 <input id="topic" type="text" placeholder="例如：刻舟求剑 / 为什么天空是蓝色的" maxlength="40">
 <div class="chips" id="chips"></div>
@@ -23,19 +23,27 @@ ol{padding-left:20px;line-height:1.8}
 </div>
 <div class="card" id="pcard" hidden><div id="msg">排队中…</div><br><div class="bar"><i id="bar"></i></div><div class="muted" id="pct"></div></div>
 <div class="card" id="rcard" hidden><video id="vid" controls></video><p><a class="dl" id="dl">⬇ 下载 MP4</a> <span class="muted" id="meta"></span></p><ol id="script"></ol></div>
+<div class="card"><b>我的视频</b><ol id="hist" class="muted"></ol></div>
 </div><script>
 const $=id=>document.getElementById(id);
+async function me(){const r=await fetch('/api/me');if(r.status===401){location.href='/login';return}const m=await r.json();
+ $('top').innerHTML='';const t=document.createElement('span');t.textContent=`${m.username} · 今日剩余 ${m.remaining===null?'不限':m.remaining+' 次'} `;$('top').append(t);
+ if(m.is_admin){const a=document.createElement('a');a.href='/admin';a.textContent='用户管理 ';a.style.color='#af281e';$('top').append(a)}
+ const o=document.createElement('a');o.href='#';o.textContent='退出';o.style.color='#af281e';o.onclick=async e=>{e.preventDefault();await fetch('/api/logout',{method:'POST'});location.href='/login'};$('top').append(o);
+ const h=await (await fetch('/api/jobs')).json();$('hist').innerHTML='';h.forEach(j=>{const li=document.createElement('li');
+  if(j.status==='done'){const a=document.createElement('a');a.href=j.video;a.target='_blank';a.textContent=`${j.topic}（${j.duration}s）`;a.style.color='#af281e';li.append(a)}else li.textContent=`${j.topic} — ${j.message}`;$('hist').append(li)})}
+me();
 ["刻舟求剑","守株待兔","为什么天空是蓝色的","为什么要多喝水"].forEach(t=>{const s=document.createElement('span');s.textContent=t;s.onclick=()=>{$('topic').value=t;document.querySelector(`[name=kind][value=${t.startsWith('为什么')?'kepu':'chengyu'}]`).checked=true};$('chips').append(s)});
 fetch('/api/config').then(r=>r.json()).then(c=>$('cfg').textContent=`脚本：${c.llm?'大模型':'模板/内置'}　图片：${c.image?'AI生图':'占位图'}　配音：${c.voice}`);
 const val=n=>document.querySelector(`[name=${n}]:checked`).value;
 $('go').onclick=async()=>{const topic=$('topic').value.trim();if(!topic)return alert('请输入主题');
  $('go').disabled=true;$('rcard').hidden=true;$('pcard').hidden=false;$('bar').style.width='0';
  const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,kind:val('kind'),style:val('style')})});
- if(!r.ok){alert((await r.json()).detail);$('go').disabled=false;return}
- const id=(await r.json()).id;
+ if(r.status===401)return location.href='/login';if(!r.ok){alert((await r.json()).detail);$('pcard').hidden=true;$('go').disabled=false;return}
+ const id=(await r.json()).id;me();
  const poll=async()=>{const j=await (await fetch('/api/jobs/'+id)).json();$('msg').textContent=j.message;$('bar').style.width=j.progress+'%';$('pct').textContent=j.progress+'%';
-  if(j.status==='done'){$('go').disabled=false;$('rcard').hidden=false;$('vid').src=j.video;$('dl').href=j.video+'?download=1';
+  if(j.status==='done'){me();$('go').disabled=false;$('rcard').hidden=false;$('vid').src=j.video;$('dl').href=j.video+'?download=1';
    $('meta').textContent=`时长 ${j.duration}s · 脚本 ${j.script_source} · ${j.narration?'含配音':'无配音'}`;
    $('script').innerHTML='';j.script.scenes.forEach(s=>{const li=document.createElement('li');li.textContent=s.narration;$('script').append(li)})}
-  else if(j.status==='error'){$('go').disabled=false;alert(j.message)} else setTimeout(poll,1500)};poll()};
+  else if(j.status==='error'){me();$('go').disabled=false;alert(j.message)} else setTimeout(poll,1500)};poll()};
 </script></body></html>
