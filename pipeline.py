@@ -167,6 +167,90 @@ def llm_script(topic, kind):
     data.setdefault("title_en", topic)
     return data
 
+def find_existing_job(topic, base_dir=None):
+    """查找本地已有该主题的高清插画与剧本，供英文版无损继承，确保中英文版本插画绝对一致。"""
+    if base_dir is None:
+        base_dir = os.path.join(BASE, "output")
+    if not os.path.exists(base_dir):
+        return None
+    clean_fn = lambda s: re.sub(r"[，。？?!！\s、：“”‘’（）《》…—,.!?~～]+", "", s)
+    t_clean = clean_fn(topic)
+    candidates = []
+    for d in os.listdir(base_dir):
+        p = os.path.join(base_dir, d)
+        if not os.path.isdir(p):
+            continue
+        sf = os.path.join(p, "script.json")
+        if not os.path.exists(sf):
+            continue
+        try:
+            with open(sf, "r", encoding="utf-8") as f:
+                s = json.load(f)
+            if clean_fn(s.get("title", "")) == t_clean:
+                n = len(s.get("scenes", []))
+                if n >= 4 and all(os.path.exists(os.path.join(p, f"img{i}.png")) for i in range(n)):
+                    candidates.append((os.path.getmtime(sf), p, s))
+        except Exception:
+            continue
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1], candidates[0][2]
+    return None
+
+def translate_script_to_english(script, topic, kind):
+    """当继承历史中文剧本时，若缺少英文旁白，调用大模型对齐翻译出英文旁白、标题与TikTok发布物料，100%保持原分镜结构。"""
+    scenes = script.get("scenes", [])
+    if all(sc.get("narration_en") for sc in scenes) and script.get("title_en"):
+        return script
+
+    base, key = os.getenv("LLM_BASE_URL"), os.getenv("LLM_API_KEY")
+    model = os.getenv("LLM_MODEL", "qwen-plus")
+    if not (base and key):
+        for i, sc in enumerate(scenes):
+            if not sc.get("narration_en"):
+                sc["narration_en"] = f"Scene {i+1} of {topic}: {sc.get('narration')}"
+        script["title_en"] = script.get("title_en") or topic
+        script["subtitle_en"] = script.get("subtitle_en") or "Classic Story"
+        return script
+
+    system_prompt = (
+        "You are an expert bilingual video translator and TikTok content creator. "
+        "Given a Chinese video script with scene narrations, translate them into engaging, natural English narrations "
+        "(15-25 words per scene) suitable for voiceover. Also create a viral TikTok title, description, and hashtags.\n"
+        "Return ONLY a JSON object with this exact structure:\n"
+        "{\n"
+        '  "title_en": "English Video Title",\n'
+        '  "subtitle_en": "English Subtitle",\n'
+        '  "publish_info_en": {"title": "TikTok Title", "description": "Engaging caption", "tags": ["#Tag1", "#Tag2"]},\n'
+        '  "scenes": [{"narration_en": "English narration for scene 1"}, ...]\n'
+        "}"
+    )
+    user_payload = {
+        "title": script.get("title", topic),
+        "subtitle": script.get("subtitle", ""),
+        "scenes": [sc.get("narration", "") for sc in scenes]
+    }
+    try:
+        r = requests.post(base.rstrip("/") + "/chat/completions", timeout=60,
+                          headers={"Authorization": f"Bearer {key}"},
+                          json={"model": model, "messages": [
+                              {"role": "system", "content": system_prompt},
+                              {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)}
+                          ], "response_format": {"type": "json_object"}})
+        if r.ok:
+            data = json.loads(r.json()["choices"][0]["message"]["content"])
+            script["title_en"] = data.get("title_en") or script.get("title_en") or topic
+            script["subtitle_en"] = data.get("subtitle_en") or script.get("subtitle_en") or "Ancient Wisdom"
+            if data.get("publish_info_en"):
+                script["publish_info_en"] = data["publish_info_en"]
+            trans_scenes = data.get("scenes", [])
+            for i, sc in enumerate(scenes):
+                if i < len(trans_scenes) and trans_scenes[i].get("narration_en"):
+                    sc["narration_en"] = trans_scenes[i]["narration_en"]
+    except Exception:
+        pass
+    return script
+
 def get_script(topic, kind, log):
     if topic in BUILTIN:
         log("使用内置脚本"); return BUILTIN[topic], "builtin"
@@ -622,14 +706,30 @@ def render_single_video(script, lang, wd, out_video, style, bgc, adv_fn, log):
 
     # 3. 拼接输出
     list_file = f"{wd}/list_{lang_tag}.txt"
-    open(list_file, "w", encoding="utf-8").write("".join(f"file '{s}'\n" for s in segs))
+    open(list_file, "w", encoding="utf-8").write("".join(f"file '{os.path.abspath(s)}'\n" for s in segs))
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", "-movflags", "+faststart", out_video])
     return round(dur(out_video), 1), narr_ok
 
 def build(topic, kind, style, wd, out, progress, lang_mode="both"):
     """流水线生成主函数：负责脚本、生图、配音与最终视频合成（支持中文版、英文出海版或双版本同时生成）。"""
     os.makedirs(wd, exist_ok=True); log = lambda m: progress(None, m)
-    script, src = get_script(topic, kind, log)
+    import shutil
+
+    # 优先检测本地是否已有该主题的高清插画与剧本（确保中英文版本 100% 镜头一致）
+    inherited_job = find_existing_job(topic)
+    if inherited_job and (lang_mode == "en" or not os.path.exists(f"{wd}/img0.png")):
+        exist_p, exist_s = inherited_job
+        log(f"检测到《{topic}》已有中文版高清插画，已自动继承！确保英文版与中文版画面 100% 镜头一致")
+        script = translate_script_to_english(exist_s, topic, kind)
+        src = "inherited"
+        for i in range(len(script.get("scenes", []))):
+            src_img = os.path.join(exist_p, f"img{i}.png")
+            dst_img = f"{wd}/img{i}.png"
+            if os.path.exists(src_img) and not os.path.exists(dst_img):
+                shutil.copy2(src_img, dst_img)
+    else:
+        script, src = get_script(topic, kind, log)
+
     json.dump(script, open(f"{wd}/script.json", "w"), ensure_ascii=False, indent=1)
     n = len(script["scenes"])
 
@@ -644,11 +744,16 @@ def build(topic, kind, style, wd, out, progress, lang_mode="both"):
 
     progress(int(100 / total_steps), f"中英文双语剧本生成完成（{src}），共{n}个场景")
 
-    # 1. 高清分镜插画生成（中英文版本 100% 共享画面，极大节约 API 资源与耗时）
+    # 1. 高清分镜插画生成（若已有继承图片则直接复用，极大节约 API 资源与耗时）
     srcs = []
     for i in range(n):
-        srcs.append(get_image(script, i, style, f"{wd}/img{i}.png", log))
-        adv(f"第{i+1}张插画生成完成（{srcs[-1]}）")
+        img_target = f"{wd}/img{i}.png"
+        if os.path.exists(img_target) and os.path.getsize(img_target) > 1000:
+            srcs.append("inherited")
+            adv(f"第{i+1}张插画复用中文原版（镜头100%一致）")
+        else:
+            srcs.append(get_image(script, i, style, img_target, log))
+            adv(f"第{i+1}张插画生成完成（{srcs[-1]}）")
 
     bgc = "0xFAF0D7" if style == "kids" else "0xECE4D2"
 
