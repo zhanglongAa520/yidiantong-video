@@ -1,72 +1,276 @@
-# 成语·科普 短视频生成器（原型）
+# 🎨 抖音AI科普/成语短视频创作工作台 (AI Video Generator)
 
-输入成语或生活常识问题 → 自动生成约 1 分钟、1280x720 H.264 MP4：标题卡 + 5-6 个场景插图（Ken Burns 推镜）+ 女声普通话配音（edge-tts `zh-CN-XiaoxiaoNeural`）+ 烧录简体字幕。
+> 一站式自媒体短视频自动化创作利器：输入主题或成语典故，全自动生成 **1280x720 60FPS 高清成片** + **专业普通话旁白** + **动态居中字幕** + **抖音爆款发布物料（标题/描述/话题）**！
 
-## 运行
+---
+
+## ✨ 核心特性
+
+- 🎯 **双赛道精准定位**：
+  - **🧸 3~8岁 幼儿童趣启蒙**：拟人化童话比喻、生动趣味日常，搭配温馨彩铅儿童绘本画风；
+  - **📜 中国成语 奇趣硬核溯源**：典籍考据与科学新解，搭配古风传统写意水墨长卷画风（山水烟雨、扁舟古人、宣纸微瑕质感）。
+- ⚡ **阿里百炼全家桶深度原生适配**：
+  - **剧本与物料**：`qwen-plus` 深度结合主题生成 60 秒分镜与专属抖音发布文案；
+  - **超清水墨/绘本插画**：`qwen-image-2.0` 真实文生图（16:9 画幅、无水印）；
+  - **高质音色配音**：`qwen3-tts-flash`（Cherry 芊悦音色），支持自动回退至 edge-tts。
+- 📐 **自适应居中排版算法**：
+  - 动态计算主副标题字号（38~76px），内置中文语义标点与虚词智能断句，标题居中对称，**彻底杜绝文字撑出画面**。
+- 🛡️ **生图防风控自愈机制**：
+  - 移除任何程序占位简图，分镜 100% 真实调用百炼 API 生成；
+  - 若触发内容安全审核（`DataInspectionFailed`），立即激活大模型自动重写为合规儿童绘本/古风水墨描述并分层重试保底。
+- 📋 **抖音发布助手一键直达**：
+  - 爆款标题、作品看点描述、热门话题标签一键复制，右上角直达抖音网页端发布。
+- 💻 **现代化统一设计语言**：
+  - 创作工作台、登录注册中心与管理员用户配额控制台深度对齐现代化卡片式视觉风格；
+  - 支持成片在线播放、下载、macOS 访达一键定位及作品一键重新生成。
+
+---
+
+## 🛠️ 技术架构
+
+- **后端引擎**：Python 3.10+、FastAPI、Uvicorn、SQLite (WAL 模式)
+- **多媒体处理**：FFmpeg (Ken Burns 动态推镜缩放、drawtext 动态字幕叠加、AAC 音频合成)
+- **模型接入**：阿里云百炼 DashScope API (qwen-plus, qwen-image-2.0, qwen3-tts-flash) / OpenAI 兼容协议
+- **前端交互**：原生现代化响应式 HTML5 / CSS3 / Vanilla JavaScript
+
+---
+
+## 🚀 快速开始与本地运行
+
+### 1. 系统依赖安装
+
+#### macOS 系统
 ```bash
-pip install fastapi uvicorn requests edge-tts pillow bcrypt   # 另需 ffmpeg 与中文字体（Noto CJK）
-./run.sh                 # 默认端口 8080，可用 PORT=xxxx 修改
-```
-打开 http://localhost:8080 ，先注册/登录。
+# 1. 安装 FFmpeg（建议安装完整版以支持 drawtext 等滤镜）
+brew install ffmpeg-full
 
-可在项目目录放一个 `.env`（已 gitignore，切勿提交）供 `run.sh` 读取，例如：
+# 2. 检查中文字体（macOS 默认自带 STHeiti 或 PingFang）
+fc-list :lang=zh
 ```
+
+#### Ubuntu / Debian 系统
+```bash
+sudo apt update
+sudo apt install -y python3 python3-pip python3-venv ffmpeg fonts-noto-cjk
+```
+
+---
+
+### 2. 克隆代码与虚拟环境准备
+
+```bash
+git clone https://github.com/zhanglongAa520/idiom-video-app.git
+cd idiom-video-app
+
+# 创建并激活 Python 虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 安装依赖
+pip install --upgrade pip
+pip install fastapi uvicorn requests edge-tts pillow bcrypt
+```
+
+---
+
+### 3. 配置环境变量
+
+在项目根目录下创建 `.env` 文件（该文件已加入 `.gitignore`，切勿提交至代码库）：
+
+```env
+# ---------------- 管理员与系统配置 ----------------
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=请换成强密码
+ADMIN_PASSWORD=your_strong_password_here
 DAILY_QUOTA=3
+PORT=8080
+WORKERS=1
+
+# ---------------- 阿里云百炼大模型配置 ----------------
+# 大模型脚本生成 (qwen-plus)
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+LLM_MODEL=qwen-plus
+
+# 图像生成 (qwen-image-2.0 原生同步接口)
+IMAGE_PROVIDER=qwen
+IMAGE_MODEL=qwen-image-2.0
+IMAGE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+IMAGE_BASE_URL=https://dashscope.aliyuncs.com/api/v1
+IMAGE_SIZE=1280*720
+IMAGE_WATERMARK=false
+
+# 语音合成 (qwen3-tts-flash)
+TTS_PROVIDER=qwen
+VOICE_MODEL=qwen3-tts-flash
+TTS_VOICE=Cherry
+TTS_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TTS_BASE_URL=https://dashscope.aliyuncs.com/api/v1
+
+# ---------------- 字幕字体路径配置 ----------------
+# macOS 默认中文字体路径：
+CJK_FONT="/System/Library/Fonts/STHeiti Medium.ttc"
+# Linux 默认 Noto 字体路径：
+# CJK_FONT="/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc"
+
+# ---------------- 网络代理配置（可选，如在国内直连百炼则无需配置） ----------------
+# HTTP_PROXY=http://127.0.0.1:6152
+# HTTPS_PROXY=http://127.0.0.1:6152
 ```
 
-## 账号与限额
-- SQLite（默认 `app.db`，已 gitignore）保存用户、会话、任务；服务重启后任务列表不丢失，中断的任务自动重新排队。
-- 开放注册（用户名 3-20 位，密码 8-72 位），密码用 bcrypt 哈希；登录后下发随机会话令牌 Cookie（HttpOnly、SameSite=Lax，`COOKIE_SECURE=1` 时加 Secure）。
-- 生成/状态/视频/配置接口均需登录；普通用户只能看到自己的任务和视频（访问他人任务返回 404）。
-- 每人每日生成配额 `DAILY_QUOTA`（默认 3，按 `QUOTA_TZ` 自然日计算，失败任务不计），页面右上角显示剩余次数；每人同时只能有 1 个进行中的任务。
-- 管理员：启动时按 `ADMIN_USERNAME`/`ADMIN_PASSWORD` 创建（或重置密码），不限次数、无并发限制，可访问 `/admin` 查看用户并单独调整每日配额（留空=默认）。
-- 防暴力破解：同一 IP 在 `LOGIN_WINDOW_SEC` 内失败 `LOGIN_MAX_ATTEMPTS` 次后暂时拒绝登录/注册（内存计数，重启清零）。在反向代理后面请设置 `TRUST_PROXY=1` 以使用 `X-Forwarded-For`。
+---
 
-## 结构
-- `app.py`：FastAPI 接口 + 内存任务队列（后台线程，`WORKERS` 控制并发）
-  - `POST /api/jobs` `{topic, kind: chengyu|kepu, style: ink|kids}` → 任务
-  - `GET /api/jobs/{id}` 进度/状态/脚本；`GET /api/jobs/{id}/video[?download=1]`
-  - `GET /api/config` 当前启用了哪些服务商
-- `pipeline.py`：脚本 → 图片 → 配音 → ffmpeg 合成，服务商可插拔
-- `static/index.html`：主页面；`static/login.html` 登录/注册；`static/admin.html` 用户管理
-- `builtin/`：内置“刻舟求剑”脚本对应的水墨插图
-- `output/`：生成的视频 `{id}.mp4` 及中间文件
-
-## 接入 API Key（环境变量）
-| 变量 | 作用 |
-|---|---|
-| `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | 任意 OpenAI 兼容 `/chat/completions` 接口（OpenAI、DeepSeek、通义、xAI 等）。例：`https://api.deepseek.com/v1` + `deepseek-chat` |
-| `IMAGE_API_KEY` / `IMAGE_BASE_URL` / `IMAGE_MODEL` / `IMAGE_SIZE` | OpenAI 兼容 `/images/generations`（默认 `https://api.openai.com/v1`、`gpt-image-1`、`1536x1024`），支持返回 b64_json 或 url |
-| `IMAGE_PROVIDER=qwen` | 通义千问原生生图（DashScope 多模态同步接口）：推荐模型 `qwen-image-2.0`，分辨率默认 `1280*720`，支持 `IMAGE_WATERMARK=false` |
-| `IMAGE_PROVIDER=wanx` | 通义万相旧版接口（DashScope 异步协议）：支持 `wan2.2-t2i-flash` 等 |
-| `TTS_PROVIDER=qwen` / `VOICE_MODEL` / `TTS_VOICE` | 通义千问语音合成：模型 `qwen3-tts-flash`，音色支持 `Cherry`（芊悦）等，失败时自动回退至 edge-tts |
-| `TTS_VOICE` / `EDGE_TTS_VOICE` | edge-tts 音色（默认 `zh-CN-XiaoxiaoNeural`）或通义音色（默认 `Cherry`） |
-| `CJK_FONT` | 字幕字体路径 |
-| `OUTPUT_DIR`, `PORT`, `WORKERS` | 输出目录 / 端口 / 全局并发 |
-| `DB_PATH` | SQLite 路径，默认 `app.db` |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 管理员账号（启动时创建/重置） |
-| `DAILY_QUOTA` | 每人每日生成次数，默认 3 |
-| `QUOTA_TZ` | 配额按哪个时区的自然日计算，默认 `Asia/Shanghai` |
-| `SESSION_DAYS` | 登录有效天数，默认 7 |
-| `COOKIE_SECURE` | HTTPS 部署时设为 `1` |
-| `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_SEC` | 登录限流，默认 15 分钟内 10 次 |
-| `TRUST_PROXY` | 反代后设为 `1`，按 X-Forwarded-For 识别 IP |
+### 4. 启动服务
 
 ```bash
-LLM_BASE_URL=https://api.openai.com/v1 LLM_API_KEY=sk-... IMAGE_API_KEY=sk-... ./run.sh
+# 给脚本添加执行权限
+chmod +x run.sh
+
+# 启动服务
+./run.sh
 ```
 
-### 无 Key 回退
-- 脚本：“刻舟求剑”用内置手写脚本；其它主题用模板脚本（通用句式，内容较空泛）。
-- 图片：“刻舟求剑”+古风水墨用内置插图；其它用程序生成的水墨/绘本风占位画（山水小舟）。
-- 配音：edge-tts 需联网；失败时自动静音并按字数估算时长。
-- 任何 API 调用失败都会自动回退，不会中断任务。
+打开浏览器访问：**`http://localhost:8080`** 即可进入创作工作台！
 
-## 公网部署
-1. 云服务器（≥2 核 4G），装 `ffmpeg fonts-noto-cjk python3`，按上面装依赖。
-2. 用 systemd 或 `docker` 常驻运行 `run.sh`；前面加 Nginx/Caddy 反代 + HTTPS（Caddy：`yourdomain.com { reverse_proxy localhost:8080 }`）。
-3. 公网务必：设置强 `ADMIN_PASSWORD`、`COOKIE_SECURE=1`、`TRUST_PROXY=1`（有反代时），并备份 `app.db`。
-4. 生产化建议：多实例时把队列换成 Redis + RQ/Celery、SQLite 换 PostgreSQL；视频放对象存储（S3/OSS）+ CDN；定时清理 `output/`。
-5. 也可用 Render / Railway / Fly.io 等容器平台（需在镜像中装 ffmpeg 和中文字体）。
+---
+
+## 🌐 生产服务器部署文档 (Ubuntu / Debian / CentOS)
+
+### 方案 A：使用 Systemd 守护进程常驻运行
+
+1. **将项目部署到服务器**（例如部署在 `/var/www/idiom-video-app`）：
+   ```bash
+   sudo mkdir -p /var/www/idiom-video-app
+   sudo chown -R $USER:$USER /var/www/idiom-video-app
+   git clone https://github.com/zhanglongAa520/idiom-video-app.git /var/www/idiom-video-app
+   cd /var/www/idiom-video-app
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install fastapi uvicorn requests edge-tts pillow bcrypt
+   ```
+
+2. **创建 Systemd 服务文件**：
+   ```bash
+   sudo nano /etc/systemd/system/idiom-video.service
+   ```
+   写入以下配置：
+   ```ini
+   [Unit]
+   Description=Idiom & Science AI Video App
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=www-data
+   WorkingDirectory=/var/www/idiom-video-app
+   EnvironmentFile=/var/www/idiom-video-app/.env
+   ExecStart=/var/www/idiom-video-app/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8080
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+3. **启动并设置开机自启**：
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable idiom-video
+   sudo systemctl start idiom-video
+   sudo systemctl status idiom-video
+   ```
+
+---
+
+### 方案 B：配置 Nginx 反向代理与 SSL 证书
+
+在 `/etc/nginx/sites-available/video.yourdomain.com` 中创建 Nginx 虚拟主机配置：
+
+```nginx
+server {
+    listen 80;
+    server_name video.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name video.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/video.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/video.yourdomain.com/privkey.pem;
+
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 支持长轮询与视频切片流传输
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+```
+
+测试并重载 Nginx：
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+并在 `.env` 中设置：
+```env
+COOKIE_SECURE=1
+TRUST_PROXY=1
+```
+
+---
+
+## ⚙️ 核心环境变量清单
+
+| 变量名 | 必填 | 默认值 | 说明 |
+| :--- | :---: | :---: | :--- |
+| `ADMIN_USERNAME` | 是 | `admin` | 管理员用户名（启动时自动创建或更新密码） |
+| `ADMIN_PASSWORD` | 是 | - | 管理员密码（初始强密码） |
+| `DAILY_QUOTA` | 否 | `3` | 普通注册用户每日视频生成次数上限 |
+| `LLM_API_KEY` | 是 | - | 阿里云百炼 API-KEY（用于生成剧本及发布物料） |
+| `LLM_MODEL` | 否 | `qwen-plus` | 大语言模型编号（推荐 `qwen-plus`） |
+| `IMAGE_PROVIDER` | 否 | `qwen` | 图像提供方（`qwen` / `wanx` / `openai`） |
+| `IMAGE_MODEL` | 否 | `qwen-image-2.0` | 生图模型名称（推荐 `qwen-image-2.0`，无水印且速度快） |
+| `IMAGE_SIZE` | 否 | `1280*720` | 生图输出分辨率 |
+| `IMAGE_WATERMARK`| 否 | `false` | 是否添加百炼官方水印（建议 `false`） |
+| `TTS_PROVIDER` | 否 | `qwen` | 配音驱动（`qwen` / `edge-tts`） |
+| `VOICE_MODEL` | 否 | `qwen3-tts-flash`| 通义配音模型 |
+| `TTS_VOICE` | 否 | `Cherry` | 音色选择（`Cherry` 芊悦、`Ethan` 等） |
+| `CJK_FONT` | 是 | - | 系统中文字体文件绝对路径（用于 FFmpeg 字幕渲染） |
+| `PORT` | 否 | `8080` | 本地服务运行端口 |
+| `WORKERS` | 否 | `1` | 后台并发视频渲染 Worker 线程数 |
+| `COOKIE_SECURE` | 否 | `0` | 开启 HTTPS 时设置为 `1` |
+| `TRUST_PROXY` | 否 | `0` | 位于 Nginx 反代后设为 `1`，正确获取客户端 IP 进行防刷限流 |
+
+---
+
+## ❓ 常见问题排查 (FAQ)
+
+### 1. 生成视频时报错：`drawtext: No such filter`
+- **原因**：系统的 FFmpeg 编译时未开启 `--enable-libfreetype` 或 `--enable-libharfbuzz`。
+- **解决**：
+  - macOS：请使用 `brew install ffmpeg-full` 并确保 PATH 包含 `/opt/homebrew/opt/ffmpeg-full/bin`；
+  - Ubuntu：直接 `sudo apt install ffmpeg` 默认已自带 `drawtext` 滤镜支持。
+
+### 2. 生图出现敏感词拦截 (`DataInspectionFailed`) 怎么办？
+- **解决**：无需手动干预。系统内建大模型自愈重试流水线（`sanitize_prompt_via_llm`），会自动调用 `qwen-plus` 将提示词重写为纯正可爱的全年龄儿童绘本或传统诗意山水水墨风，并重试 3 次，保证 100% 真实调用百炼 API 绘图，绝不退化为占位简图。
+
+### 3. 字幕出现乱码或方块口口口？
+- **原因**：`CJK_FONT` 环境变量指向的字体路径不正确或文件不存在。
+- **解决**：检查字体文件是否存在，例如 Ubuntu 执行 `ls /usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc`，并将正确的完整路径填入 `.env` 的 `CJK_FONT`。
+
+---
+
+## 📄 开源许可证
+
+本项目基于 [MIT License](LICENSE) 开源。欢迎贡献代码与提交 Issue！
