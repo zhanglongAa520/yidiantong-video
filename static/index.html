@@ -934,17 +934,19 @@
     }
 
     function copyTitle(btn) {
-      const card = btn.closest('.publish-box') || btn.closest('.project-card');
-      const titleEl = card ? card.querySelector('.title-text') : null;
+      const scope = btn.closest('.pub-row') || btn.closest('.pub-content-tab') || btn.closest('.publish-box');
+      const titleEl = scope ? scope.querySelector('.title-text') : null;
       const text = titleEl ? (titleEl.innerText || titleEl.textContent).trim() : '';
-      doClipboardCopy(btn, text, '标题');
+      const isEn = btn.innerText.includes('英文') || btn.innerText.includes('TikTok');
+      doClipboardCopy(btn, text, isEn ? '英文标题' : '标题');
     }
 
     function copyDesc(btn) {
-      const card = btn.closest('.publish-box') || btn.closest('.project-card');
-      const descEl = card ? card.querySelector('.desc-text') : null;
+      const scope = btn.closest('.pub-row') || btn.closest('.pub-content-tab') || btn.closest('.publish-box');
+      const descEl = scope ? scope.querySelector('.desc-text') : null;
       const text = descEl ? (descEl.innerText || descEl.textContent).trim() : '';
-      doClipboardCopy(btn, text, '作品描述与话题');
+      const isEn = btn.innerText.includes('TikTok') || btn.innerText.includes('英文');
+      doClipboardCopy(btn, text, isEn ? 'TikTok英文文案与Tags' : '作品描述与话题');
     }
 
     function switchPubTab(btn, targetId) {
