@@ -1,15 +1,321 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>用户管理</title><style>
-body{font-family:"Noto Serif CJK SC","PingFang SC",serif;background:#f3ede0;color:#2a2a2e;margin:0}.wrap{max-width:860px;margin:0 auto;padding:30px 20px}
-table{width:100%;border-collapse:collapse;background:#fffdf7;border-radius:12px;overflow:hidden}th,td{padding:10px;border-bottom:1px solid #eee4d0;text-align:left}
-input{width:70px;padding:5px}button{background:#af281e;color:#fff;border:0;border-radius:6px;padding:6px 10px;cursor:pointer}a{color:#af281e}
-</style></head><body><div class="wrap"><h2>用户管理 <small><a href="/">← 返回</a></small></h2><p id="d"></p>
-<table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>今日已用</th><th>累计任务</th><th>每日配额（留空=默认）</th></tr></thead><tbody id="tb"></tbody></table></div><script>
-async function load(){const r=await fetch('/api/admin/users');if(r.status===401)return location.href='/login';if(!r.ok)return document.body.textContent='需要管理员权限';
- const j=await r.json();document.getElementById('d').textContent=`默认每日配额：${j.default_quota} 次`;const tb=document.getElementById('tb');tb.innerHTML='';
- j.users.forEach(u=>{const tr=document.createElement('tr');const c=v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)};
-  c(u.id);c(u.username);c(u.is_admin?'管理员':'用户');c(u.today_used);c(u.total_jobs);const td=document.createElement('td');
-  if(u.is_admin)td.textContent='不限';else{const i=document.createElement('input');i.type='number';i.min=0;i.value=u.quota??'';i.placeholder=j.default_quota;
-   const b=document.createElement('button');b.textContent='保存';b.onclick=async()=>{const v=i.value===''?null:+i.value;
-   const r=await fetch(`/api/admin/users/${u.id}/quota`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({quota:v})});alert(r.ok?'已保存':(await r.json()).detail);load()};td.append(i,' ',b)}
-  tr.append(td);tb.append(tr)})}load();
-</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>用户管理 · 抖音AI科普短视频创作工作台</title>
+  <style>
+    :root {
+      --primary: #2E7D32;
+      --primary-light: #43A047;
+      --bg-color: #F5F7FA;
+      --card-bg: #FFFFFF;
+      --border-color: #E2E8F0;
+      --text-main: #1E293B;
+      --text-muted: #64748B;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-main);
+      padding: 0 0 40px;
+    }
+    .top-nav {
+      background: #FFFFFF;
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .nav-brand {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nav-brand span {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      border-left: 1px solid #CBD5E1;
+      padding-left: 8px;
+    }
+    .btn-back {
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      background: #E8F5E9;
+      border-radius: 20px;
+      transition: all 0.2s;
+    }
+    .btn-back:hover {
+      background: #C8E6C9;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+      border: 1px solid var(--border-color);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 19px;
+      font-weight: 700;
+      color: #0F172A;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .quota-banner {
+      font-size: 13px;
+      color: #0369A1;
+      background: #E0F2FE;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+    .table-container {
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      background: #FFF;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+    thead th {
+      background: #F8FAFC;
+      color: #475569;
+      font-weight: 600;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    tbody td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #F1F5F9;
+      color: #334155;
+    }
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+    tbody tr:hover {
+      background: #F8FAFC;
+    }
+    .role-badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+    .role-admin {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .role-user {
+      background: #F1F5F9;
+      color: #475569;
+    }
+    .quota-input {
+      width: 80px;
+      font-size: 13px;
+      padding: 6px 8px;
+      border: 1.5px solid var(--border-color);
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.2s;
+      text-align: center;
+    }
+    .quota-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.15);
+    }
+    .btn-save {
+      background: var(--primary);
+      color: #FFF;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-left: 6px;
+    }
+    .btn-save:hover {
+      background: #1B5E20;
+    }
+    #loadingMsg {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部状态栏 -->
+  <div class="top-nav">
+    <div class="nav-brand">
+      🎨 抖音AI科普短视频创作工作台 <span>用户与配额管理</span>
+    </div>
+    <a href="/" class="btn-back">← 返回创作工作台</a>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">👥 成员账号与生成配额管理</h2>
+        <div id="quotaBanner" class="quota-banner">加载中...</div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>用户名</th>
+              <th>账号角色</th>
+              <th>今日已消耗</th>
+              <th>历史累计任务</th>
+              <th>每日配额设定 (留空=系统默认)</th>
+            </tr>
+          </thead>
+          <tbody id="tb">
+            <tr>
+              <td colspan="6" id="loadingMsg">正在载入用户数据...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function load() {
+      try {
+        const r = await fetch('/api/admin/users');
+        if (r.status === 401) return location.href = '/login';
+        if (!r.ok) {
+          document.getElementById('loadingMsg').textContent = '⚠️ 当前账号无管理员权限，无法查看用户列表';
+          return;
+        }
+        const j = await r.json();
+        document.getElementById('quotaBanner').textContent = `默认每日配额：${j.default_quota} 次 / 用户`;
+        const tb = document.getElementById('tb');
+        tb.innerHTML = '';
+
+        j.users.forEach(u => {
+          const tr = document.createElement('tr');
+
+          // ID
+          const tdId = document.createElement('td');
+          tdId.textContent = u.id;
+          tdId.style.fontWeight = 'bold';
+          tdId.style.color = '#64748B';
+          tr.appendChild(tdId);
+
+          // 用户名
+          const tdUser = document.createElement('td');
+          tdUser.textContent = u.username;
+          tdUser.style.fontWeight = '600';
+          tr.appendChild(tdUser);
+
+          // 角色 Badge
+          const tdRole = document.createElement('td');
+          const spanRole = document.createElement('span');
+          spanRole.className = `role-badge ${u.is_admin ? 'role-admin' : 'role-user'}`;
+          spanRole.textContent = u.is_admin ? '🛡️ 管理员' : '👤 普通成员';
+          tdRole.appendChild(spanRole);
+          tr.appendChild(tdRole);
+
+          // 今日已用
+          const tdToday = document.createElement('td');
+          tdToday.textContent = u.today_used + ' 次';
+          tr.appendChild(tdToday);
+
+          // 累计任务
+          const tdTotal = document.createElement('td');
+          tdTotal.textContent = u.total_jobs + ' 个作品';
+          tr.appendChild(tdTotal);
+
+          // 配额设置
+          const tdQuota = document.createElement('td');
+          if (u.is_admin) {
+            const spanInf = document.createElement('span');
+            spanInf.textContent = '✨ 无限制';
+            spanInf.style.color = '#2E7D32';
+            spanInf.style.fontWeight = '600';
+            tdQuota.appendChild(spanInf);
+          } else {
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.min = '0';
+            inp.className = 'quota-input';
+            inp.value = u.quota ?? '';
+            inp.placeholder = String(j.default_quota);
+
+            const btn = document.createElement('button');
+            btn.className = 'btn-save';
+            btn.textContent = '保存配额';
+            btn.onclick = async () => {
+              const val = inp.value === '' ? null : +inp.value;
+              btn.disabled = true;
+              btn.textContent = '保存中...';
+              try {
+                const res = await fetch(`/api/admin/users/${u.id}/quota`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ quota: val })
+                });
+                if (res.ok) {
+                  alert('配额保存成功！');
+                  load();
+                } else {
+                  const err = await res.json();
+                  alert(err.detail || '保存失败');
+                }
+              } catch (e) {
+                alert('网络连接错误');
+              } finally {
+                btn.disabled = false;
+                btn.textContent = '保存配额';
+              }
+            };
+            tdQuota.append(inp, btn);
+          }
+          tr.appendChild(tdQuota);
+          tb.appendChild(tr);
+        });
+      } catch (err) {
+        document.getElementById('loadingMsg').textContent = '载入用户数据失败: ' + err.message;
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

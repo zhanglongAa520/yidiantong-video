@@ -1,26 +1,255 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 · 成语科普短视频</title><style>
-body{margin:0;font-family:"Noto Serif CJK SC","PingFang SC","Microsoft YaHei",serif;background:#f3ede0;color:#2a2a2e}
-.box{max-width:380px;margin:80px auto;background:#fffdf7;border-radius:14px;padding:28px;box-shadow:0 2px 12px #0001}
-h1{text-align:center;letter-spacing:4px;margin:0 0 20px}h1 span{color:#af281e}
-.tabs{display:flex;margin-bottom:18px}.tabs b{flex:1;text-align:center;padding:8px;cursor:pointer;border-bottom:2px solid #eee}.tabs b.on{border-color:#af281e;color:#af281e}
-input{width:100%;box-sizing:border-box;font-size:17px;padding:11px;border:1px solid #d8cfbd;border-radius:9px;margin-bottom:12px}
-button{width:100%;background:#af281e;color:#fff;border:0;border-radius:9px;font-size:17px;padding:12px;cursor:pointer}
-#err{color:#af281e;min-height:22px;font-size:14px}.tip{color:#888;font-size:13px}
-</style></head><body><div class="box">
-<h1>成语<span>·</span>科普</h1>
-<div class="tabs"><b id="t1" class="on">登录</b><b id="t2">注册</b></div>
-<input id="u" placeholder="用户名" autocomplete="username"><input id="p" type="password" placeholder="密码" autocomplete="current-password">
-<input id="p2" type="password" placeholder="确认密码" hidden autocomplete="new-password">
-<div class="tip" id="tip" hidden>用户名3-20位（字母、数字、下划线或汉字），密码至少8位</div>
-<div id="err"></div><button id="go">登录</button></div><script>
-const $=i=>document.getElementById(i);let reg=false;
-function mode(r){reg=r;$('t1').className=r?'':'on';$('t2').className=r?'on':'';$('p2').hidden=!r;$('tip').hidden=!r;$('go').textContent=r?'注册并登录':'登录';$('err').textContent=''}
-$('t1').onclick=()=>mode(false);$('t2').onclick=()=>mode(true);
-document.onkeydown=e=>{if(e.key==='Enter')$('go').click()};
-$('go').onclick=async()=>{const username=$('u').value.trim(),password=$('p').value;
- if(reg&&password!==$('p2').value)return $('err').textContent='两次输入的密码不一致';
- const r=await fetch(reg?'/api/register':'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
- if(r.ok)location.href='/';else{const j=await r.json();$('err').textContent=typeof j.detail==='string'?j.detail:'请填写用户名和密码'}};
-fetch('/api/me').then(r=>{if(r.ok)location.href='/'});
-</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 / 注册 · 抖音AI科普短视频创作工作台</title>
+  <style>
+    :root {
+      --primary: #2E7D32;
+      --primary-light: #43A047;
+      --bg-color: #F5F7FA;
+      --card-bg: #FFFFFF;
+      --border-color: #E2E8F0;
+      --text-main: #1E293B;
+      --text-muted: #64748B;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header-box {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .header-box h1 {
+      font-size: 26px;
+      color: var(--primary);
+      margin: 0 0 8px 0;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .header-box p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 410px;
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 32px 28px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+      border: 1px solid var(--border-color);
+    }
+    .tabs {
+      display: flex;
+      margin-bottom: 24px;
+      border-bottom: 2px solid #EDF2F7;
+    }
+    .tabs b {
+      flex: 1;
+      text-align: center;
+      padding: 10px 0;
+      font-size: 16px;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-weight: 600;
+      position: relative;
+      transition: all 0.2s;
+    }
+    .tabs b.on {
+      color: var(--primary);
+    }
+    .tabs b.on::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 20%;
+      width: 60%;
+      height: 3px;
+      background: var(--primary);
+      border-radius: 3px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      font-size: 15px;
+      padding: 11px 14px;
+      border: 1.5px solid var(--border-color);
+      border-radius: 8px;
+      background: #F8FAFC;
+      color: var(--text-main);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+    input:focus {
+      background: #FFFFFF;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.15);
+    }
+    .btn-submit {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary), var(--primary-light));
+      color: #FFFFFF;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 700;
+      padding: 13px;
+      cursor: pointer;
+      margin-top: 8px;
+      box-shadow: 0 3px 10px rgba(46, 125, 50, 0.2);
+      transition: all 0.2s ease;
+    }
+    .btn-submit:hover {
+      box-shadow: 0 6px 16px rgba(46, 125, 50, 0.3);
+      filter: brightness(1.05);
+      transform: translateY(-1px);
+    }
+    .btn-submit:active {
+      transform: translateY(0);
+    }
+    #err {
+      min-height: 20px;
+      color: #B91C1C;
+      font-size: 13px;
+      margin-top: 10px;
+      text-align: center;
+      font-weight: 500;
+    }
+    .tip {
+      font-size: 12px;
+      color: #64748B;
+      line-height: 1.4;
+      background: #F1F5F9;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+    }
+    .card-footer {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 12px;
+      color: #94A3B8;
+    }
+  </style>
+</head>
+<body>
+  <div class="header-box">
+    <h1>🎨 抖音AI科普短视频创作工作台</h1>
+    <p>全自动分镜 · 智能配音合成 · 抖音发布物料一键直达</p>
+  </div>
+
+  <div class="login-card">
+    <div class="tabs">
+      <b id="t1" class="on">账号登录</b>
+      <b id="t2">快速注册</b>
+    </div>
+
+    <div class="form-group">
+      <label for="u">账号用户名</label>
+      <input id="u" placeholder="请输入用户名" autocomplete="username">
+    </div>
+
+    <div class="form-group">
+      <label for="p">登录密码</label>
+      <input id="p" type="password" placeholder="请输入密码" autocomplete="current-password">
+    </div>
+
+    <div class="form-group" id="p2Group" style="display:none;">
+      <label for="p2">确认密码</label>
+      <input id="p2" type="password" placeholder="请再次输入密码以确认" autocomplete="new-password">
+    </div>
+
+    <div class="tip" id="tip" style="display:none;">
+      💡 用户名需 3~20 位（字母、数字、下划线或汉字），密码不少于 8 位。
+    </div>
+
+    <button class="btn-submit" id="go">登录进入工作台</button>
+    <div id="err"></div>
+  </div>
+
+  <div class="card-footer">
+    视频数据与每日生成配额安全同步云端数据库
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let isRegister = false;
+
+    function setAuthMode(reg) {
+      isRegister = reg;
+      $('t1').className = reg ? '' : 'on';
+      $('t2').className = reg ? 'on' : '';
+      $('p2Group').style.display = reg ? 'block' : 'none';
+      $('tip').style.display = reg ? 'block' : 'none';
+      $('go').textContent = reg ? '立即注册并进入工作台' : '登录进入工作台';
+      $('err').textContent = '';
+    }
+
+    $('t1').onclick = () => setAuthMode(false);
+    $('t2').onclick = () => setAuthMode(true);
+
+    document.onkeydown = e => {
+      if (e.key === 'Enter') $('go').click();
+    };
+
+    $('go').onclick = async () => {
+      const username = $('u').value.trim();
+      const password = $('p').value;
+      if (!username || !password) {
+        $('err').textContent = '请完整填写用户名与密码';
+        return;
+      }
+      if (isRegister && password !== $('p2').value) {
+        $('err').textContent = '两次输入的密码不一致，请核对';
+        return;
+      }
+      $('go').disabled = true;
+      $('go').textContent = isRegister ? '正在注册...' : '正在登录...';
+      try {
+        const res = await fetch(isRegister ? '/api/register' : '/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        if (res.ok) {
+          location.href = '/';
+        } else {
+          const j = await res.json();
+          $('err').textContent = typeof j.detail === 'string' ? j.detail : '登录失败，请检查账号密码';
+        }
+      } catch (err) {
+        $('err').textContent = '网络连接异常，请重试';
+      } finally {
+        $('go').disabled = false;
+        $('go').textContent = isRegister ? '立即注册并进入工作台' : '登录进入工作台';
+      }
+    };
+
+    fetch('/api/me').then(r => {
+      if (r.ok) location.href = '/';
+    });
+  </script>
+</body>
+</html>

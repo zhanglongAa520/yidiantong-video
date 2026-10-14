@@ -1,49 +1,1123 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>成语·科普 短视频生成器</title>
-<style>
-body{margin:0;font-family:"Noto Serif CJK SC","PingFang SC","Microsoft YaHei",serif;background:#f3ede0;color:#2a2a2e}
-.wrap{max-width:820px;margin:0 auto;padding:32px 20px}
-h1{font-size:32px;margin:0 0 4px;letter-spacing:4px}h1 span{color:#af281e}
-.sub{color:#777;margin-bottom:24px}.card{background:#fffdf7;border-radius:14px;padding:22px;box-shadow:0 2px 12px #0001;margin-bottom:18px}
-input[type=text]{width:100%;box-sizing:border-box;font-size:20px;padding:12px 14px;border:1px solid #d8cfbd;border-radius:10px;background:#fff}
-.row{display:flex;gap:24px;flex-wrap:wrap;margin:16px 0}.row label{cursor:pointer}
-button{background:#af281e;color:#fff;border:0;border-radius:10px;font-size:18px;padding:12px 28px;cursor:pointer}button:disabled{opacity:.5}
-.chips span{display:inline-block;background:#efe6d3;border-radius:16px;padding:4px 12px;margin:4px 6px 0 0;cursor:pointer;font-size:14px}
-.bar{height:12px;background:#eee4d0;border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#af281e;transition:width .4s}
-video{width:100%;border-radius:10px;background:#000}.muted{color:#888;font-size:13px}a.dl{color:#af281e}
-ol{padding-left:20px;line-height:1.8}
-</style></head><body><div class="wrap">
-<div id="top" style="float:right;font-size:14px;margin-top:10px"></div><h1>成语<span>·</span>科普 短视频</h1><div class="sub">输入一个成语或生活常识问题，自动生成约1分钟的配音字幕视频</div>
-<div class="card">
-<input id="topic" type="text" placeholder="例如：刻舟求剑 / 为什么天空是蓝色的" maxlength="40">
-<div class="chips" id="chips"></div>
-<div class="row"><b>类型：</b><label><input type="radio" name="kind" value="chengyu" checked> 成语故事</label><label><input type="radio" name="kind" value="kepu"> 生活常识科普</label></div>
-<div class="row"><b>画风：</b><label><input type="radio" name="style" value="ink" checked> 古风水墨</label><label><input type="radio" name="style" value="kids"> 儿童绘本</label></div>
-<button id="go">生成视频</button> <span class="muted" id="cfg"></span>
-</div>
-<div class="card" id="pcard" hidden><div id="msg">排队中…</div><br><div class="bar"><i id="bar"></i></div><div class="muted" id="pct"></div></div>
-<div class="card" id="rcard" hidden><video id="vid" controls></video><p><a class="dl" id="dl">⬇ 下载 MP4</a> <span class="muted" id="meta"></span></p><ol id="script"></ol></div>
-<div class="card"><b>我的视频</b><ol id="hist" class="muted"></ol></div>
-</div><script>
-const $=id=>document.getElementById(id);
-async function me(){const r=await fetch('/api/me');if(r.status===401){location.href='/login';return}const m=await r.json();
- $('top').innerHTML='';const t=document.createElement('span');t.textContent=`${m.username} · 今日剩余 ${m.remaining===null?'不限':m.remaining+' 次'} `;$('top').append(t);
- if(m.is_admin){const a=document.createElement('a');a.href='/admin';a.textContent='用户管理 ';a.style.color='#af281e';$('top').append(a)}
- const o=document.createElement('a');o.href='#';o.textContent='退出';o.style.color='#af281e';o.onclick=async e=>{e.preventDefault();await fetch('/api/logout',{method:'POST'});location.href='/login'};$('top').append(o);
- const h=await (await fetch('/api/jobs')).json();$('hist').innerHTML='';h.forEach(j=>{const li=document.createElement('li');
-  if(j.status==='done'){const a=document.createElement('a');a.href=j.video;a.target='_blank';a.textContent=`${j.topic}（${j.duration}s）`;a.style.color='#af281e';li.append(a)}else li.textContent=`${j.topic} — ${j.message}`;$('hist').append(li)})}
-me();
-["刻舟求剑","守株待兔","为什么天空是蓝色的","为什么要多喝水"].forEach(t=>{const s=document.createElement('span');s.textContent=t;s.onclick=()=>{$('topic').value=t;document.querySelector(`[name=kind][value=${t.startsWith('为什么')?'kepu':'chengyu'}]`).checked=true};$('chips').append(s)});
-fetch('/api/config').then(r=>r.json()).then(c=>$('cfg').textContent=`脚本：${c.llm?'大模型':'模板/内置'}　图片：${c.image?'AI生图':'占位图'}　配音：${c.voice}`);
-const val=n=>document.querySelector(`[name=${n}]:checked`).value;
-$('go').onclick=async()=>{const topic=$('topic').value.trim();if(!topic)return alert('请输入主题');
- $('go').disabled=true;$('rcard').hidden=true;$('pcard').hidden=false;$('bar').style.width='0';
- const r=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,kind:val('kind'),style:val('style')})});
- if(r.status===401)return location.href='/login';if(!r.ok){alert((await r.json()).detail);$('pcard').hidden=true;$('go').disabled=false;return}
- const id=(await r.json()).id;me();
- const poll=async()=>{const j=await (await fetch('/api/jobs/'+id)).json();$('msg').textContent=j.message;$('bar').style.width=j.progress+'%';$('pct').textContent=j.progress+'%';
-  if(j.status==='done'){me();$('go').disabled=false;$('rcard').hidden=false;$('vid').src=j.video;$('dl').href=j.video+'?download=1';
-   $('meta').textContent=`时长 ${j.duration}s · 脚本 ${j.script_source} · ${j.narration?'含配音':'无配音'}`;
-   $('script').innerHTML='';j.script.scenes.forEach(s=>{const li=document.createElement('li');li.textContent=s.narration;$('script').append(li)})}
-  else if(j.status==='error'){me();$('go').disabled=false;alert(j.message)} else setTimeout(poll,1500)};poll()};
-</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>抖音AI科普短视频创作工作台</title>
+  <style>
+    :root {
+      --bg: #F4F6F8;
+      --card-bg: #FFFFFF;
+      --primary: #1B5E20;
+      --primary-light: #2E7D32;
+      --accent: #E8F5E9;
+      --text: #263238;
+      --muted: #607D8B;
+      --border: #CFD8DC;
+      --tag-bg: #E3F2FD;
+      --tag-color: #1565C0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px 20px 80px;
+    }
+    .top-nav {
+      max-width: 1060px;
+      margin: 0 auto 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: #64748B;
+    }
+    .top-nav a {
+      color: #2E7D32;
+      text-decoration: none;
+      font-weight: 600;
+      margin-left: 10px;
+    }
+    .top-nav a:hover { text-decoration: underline; }
+    .badge-engine {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+    .container { max-width: 1060px; margin: 0 auto; }
+    .header { text-align: center; margin-bottom: 28px; }
+    .header h1 { font-size: 28px; color: var(--primary); margin-bottom: 8px; font-weight: 700; letter-spacing: 0.5px; }
+    .header p { color: var(--muted); font-size: 14.5px; }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+      margin-bottom: 24px;
+      border: 1px solid #E0E0E0;
+    }
+    .card-title {
+      font-size: 19px;
+      color: #37474F;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+    }
+
+    .input-group { display: flex; gap: 12px; }
+    input[type="text"] {
+      flex: 1;
+      padding: 14px 18px;
+      font-size: 16px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      outline: none;
+      transition: border 0.2s;
+      background: #FFFFFF;
+    }
+    input[type="text"]:focus { border-color: var(--primary-light); }
+    button.btn-primary {
+      padding: 14px 28px;
+      font-size: 16px;
+      font-weight: bold;
+      background: var(--primary-light);
+      color: #FFF;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+      white-space: nowrap;
+    }
+    button.btn-primary:hover { background: var(--primary); }
+    button.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* 科普定位模式切换器样式（两大核心赛道：幼儿童趣绘本 vs 中国古风成语） */
+    .mode-selector-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .mode-tab-btn {
+      flex: 1;
+      padding: 12px 18px;
+      background: #F8FAFC;
+      border: 2px solid #E2E8F0;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .mode-tab-btn:hover {
+      background: #F1F5F9;
+      border-color: #CBD5E1;
+    }
+    .mode-tab-btn.active {
+      background: #FFFFFF;
+      border-color: #2E7D32;
+      box-shadow: 0 4px 14px rgba(46, 125, 50, 0.12);
+    }
+    .mode-tab-btn.kids.active {
+      border-color: #F59E0B;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.16);
+    }
+    .mode-tab-btn.idiom.active {
+      border-color: #B91C1C;
+      box-shadow: 0 4px 14px rgba(185, 28, 28, 0.16);
+    }
+    .tab-emoji { font-size: 26px; line-height: 1; }
+    .tab-text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+    .tab-title-text { font-size: 15px; font-weight: 700; color: #1E293B; }
+    .mode-tab-btn.active .tab-title-text { color: #1B5E20; }
+    .mode-tab-btn.kids.active .tab-title-text { color: #B45309; }
+    .mode-tab-btn.idiom.active .tab-title-text { color: #991B1B; }
+    .tab-sub-text { font-size: 12px; color: #64748B; }
+    .tab-tag-count {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #E2E8F0;
+      color: #475569;
+    }
+    .mode-tab-btn.active .tab-tag-count {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .mode-tab-btn.kids.active .tab-tag-count {
+      background: #FEF3C7;
+      color: #D97706;
+    }
+    .mode-tab-btn.idiom.active .tab-tag-count {
+      background: #FEE2E2;
+      color: #B91C1C;
+    }
+
+    .quick-chips { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+    .chip {
+      background: var(--accent);
+      color: var(--primary-light);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .chip:hover { background: #C8E6C9; transform: translateY(-1px); }
+
+    .btn-action-sm {
+      font-size: 12px;
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid #CFD8DC;
+      background: #FFFFFF;
+      color: #37474F;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-action-sm:hover {
+      background: #ECEFF1;
+      border-color: #90A4AE;
+    }
+
+    /* 选题库弹窗样式 */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.6);
+      z-index: 2000;
+      backdrop-filter: blur(4px);
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-card {
+      background: #FFFFFF;
+      width: 100%;
+      max-width: 960px;
+      max-height: 85vh;
+      border-radius: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-head {
+      padding: 16px 24px;
+      border-bottom: 1px solid #E2E8F0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #F8FAFC;
+    }
+    .modal-body {
+      padding: 20px 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .topic-group-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1E293B;
+      margin: 18px 0 10px;
+      padding-bottom: 4px;
+      border-bottom: 2px solid #E2E8F0;
+    }
+    .topic-group-title:first-child { margin-top: 0; }
+    .topic-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 8px;
+    }
+    .topic-item {
+      padding: 8px 12px;
+      background: #F8FAFC;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #334155;
+      cursor: pointer;
+      border: 1px solid #E2E8F0;
+      transition: all 0.15s;
+    }
+    .topic-item:hover {
+      background: #E0F2FE;
+      color: #0369A1;
+      border-color: #BAE6FD;
+      transform: translateY(-1px);
+    }
+
+    #statusBox {
+      display: none;
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 10px;
+      background: #E3F2FD;
+      color: #0D47A1;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* 作品卡片列表 */
+    .project-card {
+      background: #FAFAFA;
+      border: 1px solid #ECEFF1;
+      border-radius: 14px;
+      padding: 22px;
+      margin-bottom: 20px;
+      transition: box-shadow 0.2s;
+    }
+    .project-card:hover {
+      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+      background: #FFFFFF;
+    }
+    .project-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px dashed #CFD8DC;
+    }
+    .project-name { font-size: 17px; font-weight: bold; color: #1E293B; }
+    .status-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .status-badge.queued { background: #FEF3C7; color: #B45309; }
+    .status-badge.running { background: #E0F2FE; color: #0369A1; }
+    .status-badge.error { background: #FEE2E2; color: #B91C1C; }
+
+    /* 抖音发布物料展示模块 */
+    .publish-box {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+    }
+    .pub-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .pub-row:last-child { margin-bottom: 0; }
+    .pub-label {
+      width: 78px;
+      font-size: 13px;
+      color: #64748B;
+      font-weight: 600;
+      padding-top: 6px;
+      flex-shrink: 0;
+    }
+    .pub-content {
+      flex: 1;
+      font-size: 14px;
+      color: #1E293B;
+      line-height: 1.5;
+    }
+    .title-text {
+      font-weight: bold;
+      color: #0F172A;
+      font-size: 15px;
+      padding: 6px 10px;
+      background: #FFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 6px;
+      display: inline-block;
+      width: calc(100% - 110px);
+    }
+    .char-badge {
+      font-size: 11px;
+      background: #EFF6FF;
+      color: #2563EB;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+      font-weight: normal;
+    }
+    .desc-text {
+      background: #FFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
+    .tags-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .pub-tag {
+      background: var(--tag-bg);
+      color: var(--tag-color);
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    /* 动作按钮 */
+    .btn-copy {
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid #CBD5E1;
+      background: #FFFFFF;
+      color: #334155;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-copy:hover {
+      background: #F1F5F9;
+      border-color: #94A3B8;
+      color: #0F172A;
+    }
+    .btn-copy.copied {
+      background: #10B981;
+      color: #FFFFFF;
+      border-color: #10B981;
+    }
+
+    .project-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      align-items: center;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .action-link {
+      font-size: 13px;
+      color: #2563EB;
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: #EFF6FF;
+      transition: background 0.2s;
+      border: none;
+      cursor: pointer;
+    }
+    .action-link:hover { background: #DBEAFE; text-decoration: none; }
+    .action-link.secondary {
+      background: #F8FAFC;
+      color: #475569;
+      border: 1px solid #E2E8F0;
+    }
+    .action-link.secondary:hover { background: #F1F5F9; }
+    .action-link.douyin {
+      background: #FE2C55;
+      color: #FFFFFF;
+    }
+    .action-link.douyin:hover { background: #E02047; text-decoration: none; }
+
+    /* 视频在线预览区 */
+    .video-preview-box {
+      margin-top: 14px;
+      padding: 14px;
+      background: #000;
+      border-radius: 10px;
+    }
+    .video-preview-box video {
+      width: 100%;
+      max-height: 480px;
+      border-radius: 6px;
+      outline: none;
+    }
+    .script-list {
+      margin-top: 12px;
+      padding: 12px 16px;
+      background: #F1F5F9;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.8;
+      list-style-position: inside;
+    }
+
+    /* Toast 提示浮窗 */
+    #toast {
+      visibility: hidden;
+      min-width: 260px;
+      background-color: #1E293B;
+      color: #FFFFFF;
+      text-align: center;
+      border-radius: 8px;
+      padding: 12px 20px;
+      position: fixed;
+      z-index: 3000;
+      left: 50%;
+      bottom: 40px;
+      transform: translateX(-50%);
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+      opacity: 0;
+      transition: opacity 0.3s, bottom 0.3s;
+    }
+    #toast.show {
+      visibility: visible;
+      opacity: 1;
+      bottom: 50px;
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部状态栏 -->
+  <div class="top-nav" style="justify-content: flex-end;">
+    <div id="userBox">加载中...</div>
+  </div>
+
+  <div class="container">
+    <div class="header">
+      <h1>🎨 抖音AI科普短视频创作工作台</h1>
+      <p>手绘彩铅绘本 / 典雅水墨意境 · 全自动分镜 · 普通话配音 · 逐句动态字幕 · 抖音发布物料一键直达</p>
+    </div>
+
+    <!-- 输入生成卡片 -->
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h3 class="card-title" style="margin-bottom:0;">💡 选择科普赛道并输入主题</h3>
+        <span style="font-size:12px; color:#64748B;">点击下方卡片自由切换受众模式</span>
+      </div>
+
+      <!-- 科普受众模式切换器 -->
+      <div class="mode-selector-tabs">
+        <div id="tabKids" class="mode-tab-btn kids active" onclick="switchMode('kids')">
+          <span class="tab-emoji">🧸</span>
+          <div class="tab-text">
+            <span class="tab-title-text">3~8岁 幼儿童趣启蒙</span>
+            <span class="tab-sub-text">拟人化童话比喻 · 暖调大色块彩铅绘本</span>
+          </div>
+          <span class="tab-tag-count" id="countKids">77个精选题</span>
+        </div>
+        <div id="tabIdiom" class="mode-tab-btn idiom" onclick="switchMode('idiom')">
+          <span class="tab-emoji">📜</span>
+          <div class="tab-text">
+            <span class="tab-title-text">中国成语 奇趣硬核溯源</span>
+            <span class="tab-sub-text">古风传统水墨 · 写意宣纸微瑕 · 典籍考据</span>
+          </div>
+          <span class="tab-tag-count" id="countIdiom">318个成语题</span>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <input type="text" id="topicInput" placeholder="例如：为什么刚睡醒眼睛里会有眼屎？为什么洗澡时间长了手指会起皱？为什么衣服拉链能咬紧？" maxlength="40">
+        <button class="btn-primary" id="genBtn" onclick="triggerGenerate()">开始一键生成</button>
+      </div>
+
+      <div class="quick-chips" style="align-items:center;">
+        <span style="font-size:13px; color:#78909C;">推荐灵感：</span>
+        <div id="chipsContainer" style="display:inline-flex; gap:8px; flex-wrap:wrap;"></div>
+        <button class="btn-action-sm" onclick="randomizeChips()">🎲 换一批灵感</button>
+        <button class="btn-action-sm" id="btnOpenTopicsModal" onclick="openTopicsModal()" style="background:#FEF3C7; border-color:#FDE68A; color:#B45309;">📚 77个精选童趣选题库</button>
+      </div>
+
+      <div id="progressContainer" style="display:none; margin-top:18px; padding:16px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span id="progressStep" style="font-size:13px; font-weight:600; color:#1E293B;">⏳ 正在初始化流水线...</span>
+          <span id="progressPercent" style="font-size:13px; font-weight:700; color:#1B5E20;">5%</span>
+        </div>
+        <div style="background:#E2E8F0; border-radius:10px; height:8px; overflow:hidden;">
+          <div id="progressBar" style="width:5%; height:100%; background:linear-gradient(90deg, #2E7D32, #66BB6A); transition:width 0.4s ease; border-radius:10px;"></div>
+        </div>
+      </div>
+      <div id="statusBox"></div>
+    </div>
+
+    <!-- 作品库与发布物料卡片 -->
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 class="card-title" style="margin-bottom:0;">📂 已生成的科普作品库与抖音发布助手</h3>
+        <a href="https://creator.douyin.com/creator-micro/content/upload" target="_blank" class="action-link douyin">
+          🚀 打开抖音网页端发布 ↗
+        </a>
+      </div>
+      <div id="projectList">加载中...</div>
+    </div>
+  </div>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <!-- 精品选题库弹窗 -->
+  <div id="topicsModal" class="modal-overlay" onclick="closeTopicsModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <h3 id="modalTitle" style="margin:0; font-size:17px; color:#0F172A; display:flex; align-items:center; gap:8px;">
+          <span>📚 精选题库</span>
+          <span style="font-size:12px; font-weight:normal; color:#D97706; background:#FEF3C7; padding:2px 8px; border-radius:12px;">点击任意选题即刻填入</span>
+        </h3>
+        <button class="btn-action-sm" onclick="closeTopicsModal()">✕ 关闭</button>
+      </div>
+      <div class="modal-body" id="modalTopicsBody">
+        <p style="text-align:center; color:#94A3B8; padding:40px 0;">正在载入题库...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentMode = 'kids'; // 'kids' | 'adult' | 'idiom'
+    let g_topics300 = {};
+    let g_topicsKids80 = {};
+    let g_topicsIdiom300 = {};
+    let g_flatTopics300 = [];
+    let g_flatTopicsKids80 = [];
+    let g_flatTopicsIdiom300 = [];
+
+    const defaultChips = {
+      kids: [
+        '为什么刚睡醒眼睛里会有黄色的小眼屎？',
+        '为什么洗澡时间长了手指头会变得皱巴巴的？',
+        '为什么衣服上的拉链一拉就能紧紧咬住？',
+        '为什么小猫咪肉垫软乎乎的从高处跳下来不会摔痛？'
+      ],
+      idiom: [
+        '为什么四面楚歌能一夜瓦解十万楚军的战斗意志？',
+        '刻舟求剑在物理学上到底错在哪个运动参照系？',
+        '水滴石穿背后暗藏着怎样惊人的流体空化气泡破坏力？',
+        '望梅止渴的大脑神经信号是如何跨感官瞬间激活唾液腺的？'
+      ]
+    };
+
+    // 1. 初始化账号信息与配置
+    async function initUser() {
+      try {
+        const res = await fetch('/api/me');
+        if (res.status === 401) {
+          location.href = '/login';
+          return;
+        }
+        const user = await res.json();
+        const ub = document.getElementById('userBox');
+        ub.innerHTML = `
+          <span>👤 ${user.username} · 今日剩余 <b>${user.remaining === null ? '不限' : user.remaining + ' 次'}</b></span>
+          ${user.is_admin ? '<a href="/admin">用户管理</a>' : ''}
+          <a href="#" onclick="logout(event)">退出登录</a>
+        `;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function logout(e) {
+      e.preventDefault();
+      await fetch('/api/logout', { method: 'POST' });
+      location.href = '/login';
+    }
+
+    // 2. 加载精选题库（幼儿童趣 + 中国成语）
+    async function loadAllTopics() {
+      try {
+        const [resKids, resIdiom] = await Promise.all([
+          fetch('/api/topics_kids_80').then(r => r.json()),
+          fetch('/api/topics_idiom_300').then(r => r.json())
+        ]);
+        g_topicsKids80 = resKids || {};
+        g_topicsIdiom300 = resIdiom || {};
+
+        g_flatTopicsKids80 = [];
+        for (const cat in g_topicsKids80) g_flatTopicsKids80.push(...g_topicsKids80[cat]);
+
+        g_flatTopicsIdiom300 = [];
+        for (const cat in g_topicsIdiom300) g_flatTopicsIdiom300.push(...g_topicsIdiom300[cat]);
+
+        const elKids = document.getElementById('countKids');
+        if (elKids) elKids.innerText = `${g_flatTopicsKids80.length}个精选题`;
+        const elIdiom = document.getElementById('countIdiom');
+        if (elIdiom) elIdiom.innerText = `${g_flatTopicsIdiom300.length}个成语题`;
+
+        updateModeUI();
+      } catch (e) {
+        console.error("加载题库失败", e);
+      }
+    }
+
+    function switchMode(mode) {
+      if (mode !== 'kids' && mode !== 'idiom') mode = 'kids';
+      if (currentMode === mode) return;
+      currentMode = mode;
+      updateModeUI();
+      if (mode === 'kids') {
+        showToast('🧸 已切换为「3~8岁 幼儿童趣启蒙」模式（彩铅绘本风）');
+      } else {
+        showToast('📜 已切换为「中国成语 奇趣硬核溯源」模式（古风水墨风）');
+      }
+    }
+
+    function updateModeUI() {
+      const tabKids = document.getElementById('tabKids');
+      const tabIdiom = document.getElementById('tabIdiom');
+      const input = document.getElementById('topicInput');
+      const modalBtn = document.getElementById('btnOpenTopicsModal');
+
+      if (tabKids) tabKids.classList.remove('active');
+      if (tabIdiom) tabIdiom.classList.remove('active');
+
+      if (currentMode === 'idiom') {
+        if (tabIdiom) tabIdiom.classList.add('active');
+        input.placeholder = "例如：为什么四面楚歌能瓦解军心？刻舟求剑在物理学上错在哪？望梅止渴大脑如何激活唾液腺？";
+        modalBtn.innerText = `📚 ${g_flatTopicsIdiom300.length || 318}个成语硬核溯源题库`;
+        modalBtn.style.background = "#FEE2E2";
+        modalBtn.style.borderColor = "#FECACA";
+        modalBtn.style.color = "#B91C1C";
+      } else {
+        currentMode = 'kids';
+        if (tabKids) tabKids.classList.add('active');
+        input.placeholder = "例如：为什么刚睡醒眼睛里会有眼屎？为什么洗澡时间长了手指会起皱？为什么衣服拉链能咬紧？";
+        modalBtn.innerText = `📚 ${g_flatTopicsKids80.length || 77}个精选童趣选题库`;
+        modalBtn.style.background = "#FEF3C7";
+        modalBtn.style.borderColor = "#FDE68A";
+        modalBtn.style.color = "#B45309";
+      }
+      renderChips();
+    }
+
+    function renderChips(customList = null) {
+      const container = document.getElementById('chipsContainer');
+      const list = customList || defaultChips[currentMode] || defaultChips.kids;
+      container.innerHTML = list.map(t => `<span class="chip" onclick="setTopic('${escapeQuotes(t)}')">${t}</span>`).join('');
+    }
+
+    function randomizeChips() {
+      let pool = currentMode === 'idiom' ? g_flatTopicsIdiom300 : g_flatTopicsKids80;
+      let modeName = currentMode === 'idiom' ? '成语溯源' : '生活童趣';
+      if (!pool || pool.length === 0) {
+        showToast('题库载入中，请稍候...');
+        return;
+      }
+      const shuffled = [...pool].sort(() => 0.5 - Math.random());
+      const selected = shuffled.slice(0, 4);
+      renderChips(selected);
+      showToast(`🎲 已从${pool.length}个${modeName}题库为您换了一批新灵感！`);
+    }
+
+    function openTopicsModal() {
+      const modal = document.getElementById('topicsModal');
+      const head = document.getElementById('modalTitle');
+      const body = document.getElementById('modalTopicsBody');
+      modal.classList.add('active');
+
+      let data = g_topicsKids80;
+      let count = `${g_flatTopicsKids80.length}个生活精选幼儿童趣`;
+      let badgeColor = '#D97706';
+      let badgeBg = '#FEF3C7';
+      let icon = '🧸';
+
+      if (currentMode === 'idiom') {
+        data = g_topicsIdiom300;
+        count = `${g_flatTopicsIdiom300.length}个中国成语奇趣硬核溯源`;
+        badgeColor = '#B91C1C';
+        badgeBg = '#FEE2E2';
+        icon = '📜';
+      }
+
+      head.innerHTML = `
+        <span>📚 ${count}（已自动过滤已生成项目）</span>
+        <span style="font-size:12px; font-weight:normal; color:${badgeColor}; background:${badgeBg}; padding:2px 8px; border-radius:12px;">点击任意选题即刻填入</span>
+      `;
+
+      if (Object.keys(data).length === 0) {
+        body.innerHTML = '<p style="text-align:center; color:#EF4444; padding:40px 0;">题库载入中，请稍候再试</p>';
+        return;
+      }
+
+      body.innerHTML = Object.keys(data).map(cat => `
+        <div class="topic-group-title">${cat}</div>
+        <div class="topic-grid">
+          ${data[cat].map(t => `
+            <div class="topic-item" onclick="selectTopicFromModal('${escapeQuotes(t)}')">
+              ${icon} ${t}
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+    }
+
+    function closeTopicsModal(e) {
+      document.getElementById('topicsModal').classList.remove('active');
+    }
+
+    function selectTopicFromModal(t) {
+      setTopic(t);
+      closeTopicsModal();
+      showToast(`已填入选题：「${t}」`);
+      document.getElementById('topicInput').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.className = "show";
+      setTimeout(() => { t.className = t.className.replace("show", ""); }, 2200);
+    }
+
+    function doClipboardCopy(btn, text, label) {
+      if (!text) {
+        alert('未找到可复制的内容！');
+        return;
+      }
+      const finish = () => {
+        const originalText = btn.innerText;
+        btn.innerText = '✅ 已复制';
+        btn.classList.add('copied');
+        showToast(`已成功复制${label}！可直接在抖音后台粘贴使用。`);
+        setTimeout(() => {
+          btn.innerText = originalText;
+          btn.classList.remove('copied');
+        }, 2000);
+      };
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(finish).catch(() => fallbackCopy(text, finish));
+      } else {
+        fallbackCopy(text, finish);
+      }
+    }
+
+    function fallbackCopy(text, onSuccess) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.top = '-9999px';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        const ok = document.execCommand('copy');
+        if (ok) { if (onSuccess) onSuccess(); }
+        else { prompt('请按下 Ctrl+C / Cmd+C 手动复制：', text); }
+      } catch (err) {
+        prompt('请按下 Ctrl+C / Cmd+C 手动复制：', text);
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+
+    function copyTitle(btn) {
+      const card = btn.closest('.publish-box') || btn.closest('.project-card');
+      const titleEl = card ? card.querySelector('.title-text') : null;
+      const text = titleEl ? (titleEl.innerText || titleEl.textContent).trim() : '';
+      doClipboardCopy(btn, text, '标题');
+    }
+
+    function copyDesc(btn) {
+      const card = btn.closest('.publish-box') || btn.closest('.project-card');
+      const descEl = card ? card.querySelector('.desc-text') : null;
+      const text = descEl ? (descEl.innerText || descEl.textContent).trim() : '';
+      doClipboardCopy(btn, text, '作品描述与话题');
+    }
+
+    async function openInFinder(jid) {
+      try {
+        const res = await fetch('/api/open_finder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: jid })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          showToast(`已在访达 (Finder) 中高亮定位成片视频！`);
+        } else {
+          alert('打开访达失败: ' + (data.detail || '未知错误'));
+        }
+      } catch (err) {
+        alert('网络请求异常: ' + err.message);
+      }
+    }
+
+    function setTopic(t) {
+      document.getElementById('topicInput').value = t;
+    }
+
+    function toggleVideo(btn, jid, videoUrl) {
+      const card = btn.closest('.project-card');
+      let previewBox = card.querySelector('.video-preview-box');
+      if (previewBox) {
+        previewBox.remove();
+        btn.innerText = '👁️ 在线预览成片';
+      } else {
+        previewBox = document.createElement('div');
+        previewBox.className = 'video-preview-box';
+        previewBox.innerHTML = `
+          <video controls autoplay src="${videoUrl}"></video>
+          <div id="scriptBox_${jid}" class="script-list">正在加载故事分镜剧本...</div>
+        `;
+        card.querySelector('.publish-box').after(previewBox);
+        btn.innerText = '✕ 收起预览';
+        // 异步获取剧本分镜
+        fetch('/api/jobs/' + jid).then(r => r.json()).then(j => {
+          const sbox = document.getElementById('scriptBox_' + jid);
+          if (j.script && j.script.scenes && j.script.scenes.length) {
+            sbox.innerHTML = '<b>📜 旁白分镜脚本：</b><ol style="margin-top:6px; padding-left:20px;">' +
+              j.script.scenes.map(s => `<li>${s.narration}</li>`).join('') + '</ol>';
+          } else {
+            sbox.innerHTML = '暂无分镜文本';
+          }
+        }).catch(() => {});
+      }
+    }
+
+    async function loadProjects() {
+      const container = document.getElementById('projectList');
+      try {
+        const res = await fetch('/api/jobs');
+        const list = await res.json();
+        if (!list || list.length === 0) {
+          container.innerHTML = '<p style="color:#90A4AE; font-size:14px; padding:16px 0; text-align:center;">暂无已生成作品，输入上方主题立即体验吧！</p>';
+          return;
+        }
+
+        container.innerHTML = list.map(item => {
+          const hasVideo = (item.status === 'done' && item.video);
+          const pub = item.publish_info || {
+            title: item.topic,
+            char_count: item.topic.length,
+            full_desc: item.topic,
+            tags: ["#科普", "#成语故事", "#原来如此"]
+          };
+          const badgeClass = item.status === 'done' ? '' : (item.status === 'error' ? 'error' : 'running');
+          const badgeText = item.status === 'done' ? '🎬 1080P成片就绪' : (item.status === 'error' ? '❌ 生成失败' : '⏳ 正在处理中');
+
+          return `
+            <div class="project-card">
+              <div class="project-head">
+                <div class="project-name">📚 ${item.topic}</div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="status-badge ${badgeClass}">${badgeText}</span>
+                  ${item.status === 'error' ? `
+                    <button class="action-link" style="background:#FEE2E2; color:#B91C1C; padding:4px 10px; font-size:12px; border:1px solid #FCA5A5; font-weight:bold;" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}')">
+                      🔄 立即重新生成
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+
+              <!-- 抖音发布物料盒 -->
+              <div class="publish-box">
+                <div class="pub-row">
+                  <span class="pub-label">🎯 爆款标题</span>
+                  <div class="pub-content" style="display:flex; align-items:center; gap:8px;">
+                    <span class="title-text">${pub.title}</span>
+                    <span class="char-badge">${pub.char_count}/30字</span>
+                    <button class="btn-copy" onclick="copyTitle(this)">📋 复制标题</button>
+                  </div>
+                </div>
+
+                <div class="pub-row">
+                  <span class="pub-label">📝 作品描述</span>
+                  <div class="pub-content">
+                    <div class="desc-text">${pub.full_desc}</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+                      <div class="tags-container">
+                        ${(pub.tags || []).map(t => `<span class="pub-tag">${t}</span>`).join('')}
+                      </div>
+                      <button class="btn-copy" onclick="copyDesc(this)">📋 复制描述与话题</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 底部操作区 -->
+              <div class="project-actions">
+                ${hasVideo ? `
+                  <button class="action-link secondary" onclick="openInFinder('${item.id}')">
+                    📂 在访达中定位成片
+                  </button>
+                  <button class="action-link" onclick="toggleVideo(this, '${item.id}', '${item.video}')">
+                    👁️ 在线预览成片
+                  </button>
+                  <a href="${item.video}?download=1" class="action-link" style="background:#E8F5E9; color:#1B5E20;">
+                    ⬇️ 下载 MP4 (${item.duration ? item.duration + 's' : '成片'})
+                  </a>
+                  <button class="action-link secondary" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}')">
+                    🔄 再次生成
+                  </button>
+                ` : `
+                  <div style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:8px;">
+                    <span style="font-size:12px; color:#DC2626; flex:1; min-width:220px; line-height:1.4;">
+                      ⚠️ 状态：${item.message}
+                    </span>
+                    <div style="display:flex; gap:8px;">
+                      <button class="action-link" style="background:#2563EB; color:#FFF; font-weight:bold; padding:6px 14px;" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}')">
+                        🔄 重新生成此视频
+                      </button>
+                    </div>
+                  </div>
+                `}
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        container.innerHTML = '<p style="color:#D32F2F; font-size:14px;">加载作品列表失败: ' + e.message + '</p>';
+      }
+    }
+
+    function retryJob(topic, kind, style) {
+      const input = document.getElementById('topicInput');
+      if (input) {
+        input.value = topic;
+      }
+      let mode = 'kids';
+      if (kind === 'chengyu') mode = 'idiom';
+      else if (style === 'ink') mode = 'adult';
+      
+      if (typeof setMode === 'function') {
+        setMode(mode);
+      }
+      
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      
+      setTimeout(() => {
+        triggerGenerate();
+      }, 350);
+    }
+
+    function escapeQuotes(str) {
+      return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\\n/g, '\\n');
+    }
+
+    let pollTimer = null;
+
+    async function triggerGenerate() {
+      const topic = document.getElementById('topicInput').value.trim();
+      if (!topic) return alert('请输入科普主题！');
+
+      const btn = document.getElementById('genBtn');
+      const box = document.getElementById('statusBox');
+      const progressContainer = document.getElementById('progressContainer');
+      const progressBar = document.getElementById('progressBar');
+      const progressPercent = document.getElementById('progressPercent');
+      const progressStep = document.getElementById('progressStep');
+
+      btn.disabled = true;
+      btn.innerText = '正在生成中...';
+      box.style.display = 'block';
+      box.style.background = '#E3F2FD';
+      box.style.color = '#0D47A1';
+      box.innerText = '⏳ 任务已提交，正在启动后台全自动流水线...';
+
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '5%';
+      progressPercent.innerText = '5%';
+      progressStep.innerText = '正在初始化...';
+
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+
+      try {
+        const res = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: topic, mode: currentMode })
+        });
+
+        if (res.status === 401) {
+          location.href = '/login';
+          return;
+        }
+
+        if (!res.ok) {
+          const errData = await res.json();
+          box.innerText = '❌ 启动任务失败: ' + (errData.detail || '未知错误');
+          btn.disabled = false;
+          btn.innerText = '开始一键生成';
+          return;
+        }
+
+        const data = await res.json();
+        const taskId = data.id;
+        initUser();
+
+        pollTimer = setInterval(async () => {
+          try {
+            const statusRes = await fetch('/api/jobs/' + encodeURIComponent(taskId));
+            if (!statusRes.ok) return;
+
+            const task = await statusRes.json();
+            const pct = Math.max(5, Math.min(100, task.progress || 5));
+            progressBar.style.width = pct + '%';
+            progressPercent.innerText = pct + '%';
+            progressStep.innerText = task.message || '正在处理中...';
+            box.innerText = '⏳ ' + (task.message || '正在生成中...');
+
+            if (task.status === 'done') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              progressBar.style.width = '100%';
+              progressPercent.innerText = '100%';
+              progressStep.innerText = '成片生成完成！';
+              box.style.background = '#E8F5E9';
+              box.style.color = '#1B5E20';
+              box.innerHTML = `✅ 恭喜！《${topic}》成片已生成完成！时长：${task.duration}秒<br><a href="${task.video}" target="_blank" style="font-weight:bold; color:#0D47A1; margin-top:8px; display:inline-block;">👉 点击播放并下载视频成片 ↗</a>`;
+              loadProjects();
+              initUser();
+              loadAllTopics();
+              btn.disabled = false;
+              btn.innerText = '开始一键生成';
+            } else if (task.status === 'error') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              box.style.background = '#FFEBEE';
+              box.style.color = '#C62828';
+              box.innerText = '❌ 生成失败: ' + task.message;
+              btn.disabled = false;
+              btn.innerText = '开始一键生成';
+              loadProjects();
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        }, 1500);
+
+      } catch (err) {
+        box.innerText = '❌ 提交失败: ' + err.message;
+        btn.disabled = false;
+        btn.innerText = '开始一键生成';
+      }
+    }
+
+    // 页面加载启动
+    initUser();
+    loadAllTopics();
+    loadProjects();
+  </script>
+</body>
+</html>

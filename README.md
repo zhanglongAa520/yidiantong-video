@@ -39,7 +39,10 @@ DAILY_QUOTA=3
 |---|---|
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | 任意 OpenAI 兼容 `/chat/completions` 接口（OpenAI、DeepSeek、通义、xAI 等）。例：`https://api.deepseek.com/v1` + `deepseek-chat` |
 | `IMAGE_API_KEY` / `IMAGE_BASE_URL` / `IMAGE_MODEL` / `IMAGE_SIZE` | OpenAI 兼容 `/images/generations`（默认 `https://api.openai.com/v1`、`gpt-image-1`、`1536x1024`），支持返回 b64_json 或 url |
-| `TTS_VOICE` | edge-tts 音色，默认 `zh-CN-XiaoxiaoNeural` |
+| `IMAGE_PROVIDER=qwen` | 通义千问原生生图（DashScope 多模态同步接口）：推荐模型 `qwen-image-2.0`，分辨率默认 `1280*720`，支持 `IMAGE_WATERMARK=false` |
+| `IMAGE_PROVIDER=wanx` | 通义万相旧版接口（DashScope 异步协议）：支持 `wan2.2-t2i-flash` 等 |
+| `TTS_PROVIDER=qwen` / `VOICE_MODEL` / `TTS_VOICE` | 通义千问语音合成：模型 `qwen3-tts-flash`，音色支持 `Cherry`（芊悦）等，失败时自动回退至 edge-tts |
+| `TTS_VOICE` / `EDGE_TTS_VOICE` | edge-tts 音色（默认 `zh-CN-XiaoxiaoNeural`）或通义音色（默认 `Cherry`） |
 | `CJK_FONT` | 字幕字体路径 |
 | `OUTPUT_DIR`, `PORT`, `WORKERS` | 输出目录 / 端口 / 全局并发 |
 | `DB_PATH` | SQLite 路径，默认 `app.db` |
