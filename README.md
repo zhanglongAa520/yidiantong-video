@@ -37,6 +37,13 @@
 - **账号与限额**：开放注册、bcrypt 密码哈希、HttpOnly 会话 Cookie；每人每日生成配额（默认 3 次）、每人同时 1 个任务；登录按 IP 限流防暴力破解。
 - **管理后台**：管理员不限次数，可查看所有用户用量并单独调整每日配额。
 - **任务持久化**：SQLite（WAL）保存用户与任务，重启不丢失，中断任务自动重新排队。
+- **横屏 16:9 / 竖屏 9:16**：竖屏输出 1080×1920，字幕加大并上移到画面 3/4 处、按窄屏折行；横版插画放入竖屏时用模糊背景 + 完整原图居中，不裁掉主体。
+- **背景音乐与音效**：内置「古风」「轻快」两类共 4 首 BGM（按画风自动选择，也可手动选择或关闭），旁白出现时自动压低音乐（sidechain ducking）；可选片头铃声与场景切换“嗖”声。所有音频均为程序合成，CC0，见 [assets/audio/LICENSE.md](assets/audio/LICENSE.md)。
+- **先审稿再出图**：勾选后先只生成剧本，可逐镜修改中/英文旁白、画面描述、标题与主角设定，确认后才生成画面；放弃剧本不计次数。
+- **单镜重绘**：成片后可单独重绘某一镜插画（可同时改旁白），其它镜头复用、配音按文本缓存，只重新合成视频。
+- **多音色与语速**：edge-tts 中文 5 种（晓晓 温柔女声、云希 阳光男声、云健 浑厚男声、晓伊 童趣女声、云夏 童声男孩）、英文 4 种（Jenny、Guy、Aria、Ana 童声），语速 -30%～+30%。
+- **角色一致性**：每个故事生成一张“主角设定卡”（外貌/服饰等固定特征，可在审稿时修改），拼接到每一镜的生图提示词；OpenAI 兼容接口下以第 1 镜为参考图调用 `/images/edits`；无 Key 占位模式下同一故事共用色板与人物剪影。
+- **会员套餐与支付**：免费版每日 3 次，默认「月卡」¥19.9 / 30 天 / 每日 5 次；套餐可在配置文件或管理后台增删改，立即生效。订单表 + 可插拔支付接口（mock 测试、微信支付、支付宝骨架），管理员可手动开通会员。
 
 ## 🖼️ 界面截图
 
@@ -46,7 +53,12 @@
 | **生成进度** | **成片与发布物料** |
 | <img src="docs/screenshots/progress.png" width="420"> | <img src="docs/screenshots/result.png" width="420"> |
 
-<details><summary>管理员：用户与配额管理</summary>
+| **生成选项（画幅/配音/语速/音乐）** | **先审稿再出图** |
+| <img src="docs/screenshots/options.png" width="420"> | <img src="docs/screenshots/review.png" width="420"> |
+| **单镜重绘** | **会员套餐页** |
+| <img src="docs/screenshots/regen.png" width="420"> | <img src="docs/screenshots/pricing.png" width="420"> |
+
+<details><summary>管理员：用户、会员开通、套餐配置与订单</summary>
 
 <img src="docs/screenshots/admin.png" width="720">
 </details>
@@ -110,6 +122,31 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 
 注册账号后即可开始创作；用 `ADMIN_USERNAME` 登录可访问 `/admin`。
 
+## 💎 配额、计费与会员
+
+**每日配额的计算**（按 `QUOTA_TZ` 自然日）：
+
+- 管理员不限；管理员给某用户单独设置的配额优先；否则按有效会员套餐的每日次数（空 = 不限）；否则按免费版次数。
+- 每成功提交 1 个视频计 1 次；**生成失败、放弃待审核剧本不计**。
+- **单镜重绘：每 `REGEN_PER_QUOTA`（默认 3）次重绘折算 1 次生成，不足 3 次按 1 次计**（即当天第 1 次重绘占用 1 次额度，第 2、3 次不再额外扣，第 4 次再占 1 次）。重绘失败时原视频保留。
+- 每人同时只能有 1 个进行中的任务（排队/生成中/待审核）。
+
+**套餐配置**：优先级为 管理后台保存的配置（存 SQLite `settings` 表，立即生效）＞ `PLANS_FILE`（默认 `config/plans.json`，可参考 `config/plans.example.json`）＞ 内置默认（免费 `DAILY_QUOTA`=3 次/天；月卡 ¥19.9 / 30 天 / 5 次/天）。后台可“恢复默认”。续费同一套餐时到期时间自动顺延。
+
+**支付**：`PAYMENT_PROVIDERS` 控制启用的支付方式（逗号分隔）。未启用任何方式时，定价页显示“在线支付暂未开通”，可由管理员在后台手动开通会员。
+
+| 提供方 | 状态 | 说明 |
+| --- | --- | --- |
+| `mock` | ✅ 可用（仅测试） | 点击即“支付成功”。**切勿在公网启用**，否则任何人可免费开通 |
+| `wechat` | ⚠️ 骨架 | `payments.WechatPayProvider`：APIv3 Native 下单与回调验签留有 TODO |
+| `alipay` | ⚠️ 骨架 | `payments.AlipayProvider`：电脑网站支付/当面付签名与验签留有 TODO |
+
+> **真实收款目前不可用。** 接入前需要：
+> - **微信支付**：企业/个体工商户主体，微信支付商户号（`WECHAT_MCHID`）及关联的公众号/小程序/开放平台 AppID（`WECHAT_APPID`）、APIv3 密钥、商户 API 证书（序列号 + 私钥文件）、HTTPS 公网回调地址；
+> - **支付宝**：支付宝开放平台应用（`ALIPAY_APP_ID`，签约“电脑网站支付”或“当面付”）、应用私钥与支付宝公钥（RSA2）、HTTPS 回调地址；可先用沙箱网关联调；
+> - **网站本身**：在中国大陆服务器上提供网站服务需完成 **ICP 备案**，支付渠道审核通常要求网站已备案、页面展示服务内容/价格/联系方式/用户协议与隐私政策；经营性收费网站可能还需 **ICP 经营许可证**。具体以支付平台与主管部门要求为准。
+> - 然后按 `payments.py` 中的 TODO 完成签名、下单与回调验签，回调地址为 `https://你的域名/api/pay/notify/wechat` 或 `/api/pay/notify/alipay`。
+
 ## ⚙️ 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -142,6 +179,14 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 | `VOICE_MODEL` / `TTS_VOICE` | `qwen3-tts-flash` / `Cherry` | 通义配音模型 / 音色 |
 | `EDGE_TTS_VOICE` | `zh-CN-XiaoxiaoNeural` | edge-tts 中文音色（英文固定 `en-US-JennyNeural`） |
 | `CJK_FONT` | Noto Serif CJK | 字幕字体文件路径 |
+| **音乐 / 角色 / 计费** | | |
+| `MUSIC_VOLUME` | `0.18` | 背景音乐音量（再叠加旁白闪避） |
+| `IMAGE_USE_REFERENCE` | `1` | OpenAI 兼容接口下是否以第 1 镜为参考图（`/images/edits`） |
+| `REGEN_PER_QUOTA` | `3` | 多少次单镜重绘折算 1 次生成 |
+| `PLANS_FILE` | `config/plans.json` | 套餐默认配置文件（后台保存的配置优先） |
+| `PAYMENT_PROVIDERS` | 空 | 启用的支付方式：`mock`、`wechat`、`alipay` |
+| `WECHAT_MCHID` / `WECHAT_APPID` / `WECHAT_API_V3_KEY` / `WECHAT_CERT_SERIAL` / `WECHAT_PRIVATE_KEY_PATH` / `WECHAT_NOTIFY_URL` | – | 微信支付（骨架，需补全实现） |
+| `ALIPAY_APP_ID` / `ALIPAY_PRIVATE_KEY_PATH` / `ALIPAY_PUBLIC_KEY_PATH` / `ALIPAY_NOTIFY_URL` / `ALIPAY_GATEWAY` | – | 支付宝（骨架，需补全实现） |
 
 ## 🌐 部署
 
@@ -157,7 +202,7 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
    ```
 
 3. **HTTPS 反向代理**：Nginx（`proxy_pass http://127.0.0.1:8080; proxy_buffering off; proxy_read_timeout 300s;` 并转发 `X-Forwarded-For`）或 Caddy（`video.example.com { reverse_proxy localhost:8080 }`）。
-4. **公网安全清单**：强 `ADMIN_PASSWORD`、`COOKIE_SECURE=1`、反代后 `TRUST_PROXY=1`、定期备份 `app.db`、定时清理 `output/`。
+4. **公网安全清单**：强 `ADMIN_PASSWORD`、`COOKIE_SECURE=1`、反代后 `TRUST_PROXY=1`、**不要启用 `mock` 支付**、定期备份 `app.db`、定时清理 `output/`。
 5. **扩展**：多实例部署时可将内存队列换成 Redis + RQ/Celery，SQLite 换 PostgreSQL，成片放对象存储 + CDN。
 
 > 「在访达中定位」按钮仅在 macOS 本机运行时可用。
@@ -167,6 +212,8 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 - **`drawtext: No such filter`**：ffmpeg 缺少 freetype。macOS 用 `ffmpeg-full`，Ubuntu 的 `apt install ffmpeg` 已包含。
 - **字幕显示方块**：`CJK_FONT` 路径不对，指向一个存在的中文字体文件即可。
 - **生图被审核拦截（`DataInspectionFailed`）**：系统会自动改写提示词并重试，最多 3 次。
+- **想换自己的背景音乐**：替换 `assets/audio/music_{guofeng|light}_{1|2}.m4a` 即可，并在 `assets/audio/LICENSE.md` 记录来源与许可；运行 `python3 tools/make_audio.py` 可重新生成内置音频。
+- **无 Key 模式下单镜重绘**：插画为程序生成的占位图，重绘会换一张不同构图的占位图；内置《刻舟求剑》的某一镜被重绘后也会变为占位图（配置生图 Key 后则为 AI 重绘）。
 
 ## 📄 许可证
 
@@ -185,6 +232,12 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 - Pluggable providers: any OpenAI-compatible LLM; Alibaba Bailian `qwen-image` / `wanx` / OpenAI-compatible image APIs; Qwen TTS with automatic free edge-tts fallback.
 - Works without API keys (built-in 刻舟求剑 story; template scripts + procedural placeholder art for other topics).
 - Accounts (bcrypt, HttpOnly session cookie), daily per-user quota, 1 concurrent job per user, per-IP login rate limiting, admin page for quotas, SQLite persistence.
+- 16:9 or vertical 9:16 (1080×1920) output with adapted subtitle layout.
+- Self-synthesized CC0 background music (guofeng / upbeat) ducked under narration, plus optional transition SFX.
+- Script review step (edit every scene before images are generated) and single-scene regenerate after the video is done (every 3 scene regenerations count as 1 generation).
+- Multiple edge-tts voices (female, male, child; Chinese and English) and a speed slider.
+- Character sheet per story injected into every image prompt; first scene used as reference image on OpenAI-compatible providers.
+- Membership plans (default: free 3/day; monthly ¥19.9 / 30 days / 5 per day), editable in the admin page; orders table and pluggable payment providers — a `mock` provider for local testing and **WeChat Pay / Alipay skeletons only (real payments need merchant credentials, an ICP filing and completing the signing code)**.
 
 **Quick start**
 ```bash
