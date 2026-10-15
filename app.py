@@ -1,4 +1,4 @@
-import os, uuid, queue, threading, time, json, sqlite3, secrets, traceback, datetime, re, subprocess
+import os, math, uuid, queue, threading, time, json, sqlite3, secrets, traceback, datetime, re, subprocess
 from collections import defaultdict, deque
 from zoneinfo import ZoneInfo
 import bcrypt
@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, Depends
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import pipeline
+import pipeline, payments
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.getenv("OUTPUT_DIR", os.path.join(BASE, "output")); os.makedirs(OUT, exist_ok=True)
@@ -45,6 +45,17 @@ def init_db():
         cols = [col[1] for col in c.execute("PRAGMA table_info(jobs)").fetchall()]
         if "lang" not in cols:
             c.execute("ALTER TABLE jobs ADD COLUMN lang TEXT DEFAULT 'both'")
+        for col, ddl in [("opts", "TEXT DEFAULT '{}'"), ("phase", "TEXT DEFAULT 'full'"), ("regen", "TEXT DEFAULT '[]'")]:
+            if col not in cols: c.execute(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
+        ucols = [col[1] for col in c.execute("PRAGMA table_info(users)").fetchall()]
+        for col, ddl in [("plan", "TEXT"), ("plan_expires", "REAL")]:
+            if col not in ucols: c.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id INTEGER, plan TEXT, plan_name TEXT, amount_cents INTEGER,
+          days INTEGER, provider TEXT, status TEXT, created REAL, paid_at REAL, trade_no TEXT, note TEXT);
+        CREATE TABLE IF NOT EXISTS regens(id INTEGER PRIMARY KEY, user_id INTEGER, job_id TEXT, scene INTEGER, day TEXT, created REAL);
+        CREATE INDEX IF NOT EXISTS regens_user ON regens(user_id, day);""")
         return [r["id"] for r in c.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY created")]
 
 def hashpw(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt(12)).decode()
@@ -246,10 +257,26 @@ def worker():
             update_job(jid, **kw)
         try:
             lang_mode = r["lang"] if "lang" in r.keys() and r["lang"] else "both"
-            res = pipeline.build(r["topic"], r["kind"], r["style"], os.path.join(OUT, jid), os.path.join(OUT, f"{jid}.mp4"), prog, lang_mode=lang_mode)
-            update_job(jid, status="done", progress=100, message="完成", result=json.dumps(res, ensure_ascii=False))
+            opts = json.loads(r["opts"] or "{}"); phase = r["phase"] or "full"
+            prev = json.loads(r["result"] or "{}")
+            wd = os.path.join(OUT, jid)
+            if phase == "script":
+                script, src = pipeline.make_script(r["topic"], r["kind"], prog, lang_mode)
+                script["_source"] = src
+                update_job(jid, status="review", progress=0, message="剧本已生成，请审核修改后确认生成画面",
+                           result=json.dumps({"script": script, "script_source": src}, ensure_ascii=False))
+                continue
+            script = prev.get("script") if phase in ("render", "regen") else None
+            regen = json.loads(r["regen"] or "[]") if phase == "regen" else None
+            res = pipeline.build(r["topic"], r["kind"], r["style"], wd, os.path.join(OUT, f"{jid}.mp4"), prog,
+                                 lang_mode=lang_mode, opts=opts, script=script, regen=regen)
+            update_job(jid, status="done", progress=100, message="完成", phase="done", result=json.dumps(res, ensure_ascii=False))
         except Exception as e:
-            traceback.print_exc(); update_job(jid, status="error", message=f"失败：{e}")
+            traceback.print_exc()
+            if (r["phase"] or "") == "regen":   # 重绘失败：保留原成片，不影响原任务计数
+                update_job(jid, status="done", phase="done", message=f"单镜重绘失败（原视频保留）：{e}")
+            else:
+                update_job(jid, status="error", message=f"失败：{e}")
 
 @app.on_event("startup")
 def startup():
@@ -319,11 +346,44 @@ def logout(req: Request, resp: Response):
         with db() as c: c.execute("DELETE FROM sessions WHERE token=?", (t,))
     resp.delete_cookie(COOKIE, path="/"); return {"ok": True}
 
+# ---------------- 套餐与配额配置（DB 优先，其次 config/plans.json / PLANS_FILE，最后环境变量默认） ----------------
+REGEN_PER_QUOTA = int(os.getenv("REGEN_PER_QUOTA", "3"))
+def default_plans_config():
+    f = os.getenv("PLANS_FILE", os.path.join(BASE, "config", "plans.json"))
+    if os.path.exists(f):
+        try:
+            with open(f, encoding="utf-8") as fh: return json.load(fh)
+        except Exception: traceback.print_exc()
+    return {"free_daily_quota": DAILY_QUOTA,
+            "plans": [{"id": "monthly", "name": "月卡", "price_cents": 1990, "days": 30, "daily_quota": 5, "desc": "30 天内每天 5 次生成"}]}
+
+def plans_config():
+    with db() as c: r = c.execute("SELECT value FROM settings WHERE key='plans'").fetchone()
+    return json.loads(r["value"]) if r else default_plans_config()
+
+def find_plan(pid):
+    return next((p for p in plans_config()["plans"] if p["id"] == pid), None)
+
+def active_plan(u):
+    if u.get("plan") and (u.get("plan_expires") or 0) > time.time():
+        p = find_plan(u["plan"])
+        if p: return p
+    return None
+
 def quota_info(u):
-    q = None if u["is_admin"] else (u["quota"] if u["quota"] is not None else DAILY_QUOTA)
+    plan = active_plan(u)
+    if u["is_admin"]: q = None
+    elif u["quota"] is not None: q = u["quota"]                 # 管理员单独设置的配额优先
+    elif plan: q = plan.get("daily_quota")                         # None = 不限
+    else: q = int(plans_config().get("free_daily_quota", DAILY_QUOTA))
     with db() as c:
-        used = c.execute("SELECT COUNT(*) FROM jobs WHERE user_id=? AND day=? AND status!='error'", (u["id"], today())).fetchone()[0]
-    return {"quota": q, "used": used, "remaining": None if q is None else max(0, q - used)}
+        jobs = c.execute("SELECT COUNT(*) FROM jobs WHERE user_id=? AND day=? AND status NOT IN ('error','cancelled')", (u["id"], today())).fetchone()[0]
+        regens = c.execute("SELECT COUNT(*) FROM regens WHERE user_id=? AND day=?", (u["id"], today())).fetchone()[0]
+    used = jobs + math.ceil(regens / REGEN_PER_QUOTA)
+    return {"quota": q, "used": used, "jobs_today": jobs, "regens_today": regens, "regen_per_quota": REGEN_PER_QUOTA,
+            "remaining": None if q is None else max(0, q - used),
+            "plan": plan["id"] if plan else "free", "plan_name": plan["name"] if plan else "免费版",
+            "plan_expires": u.get("plan_expires") if plan else None}
 
 @app.get("/api/me")
 def me(u=Depends(current_user)):
@@ -336,8 +396,21 @@ class Req(BaseModel):
     style: str = "ink"
     mode: str | None = None
     lang: str = "both"
+    aspect: str = "16:9"          # 16:9 | 9:16
+    music: str = "auto"           # auto | guofeng | light | none
+    sfx: bool = True
+    voice_zh: str | None = None   # edge-tts 音色，None = 默认
+    voice_en: str | None = None
+    rate: int | None = None       # 语速 -50..50 (%)
+    review: bool = False          # True = 先生成剧本供审核
 
 CREATE_LOCK = threading.Lock()
+ACTIVE = ('queued', 'running', 'review')
+def check_busy(c, u, exclude=None):
+    if u["is_admin"]: return
+    row = c.execute(f"SELECT id,status FROM jobs WHERE user_id=? AND status IN {ACTIVE} AND id!=?", (u["id"], exclude or "")).fetchone()
+    if row:
+        raise HTTPException(429, "你有一个剧本待审核，请先确认或取消" if row["status"] == "review" else "你已有一个视频正在生成，请等待完成后再提交")
 @app.post("/api/jobs")
 def create(r: Req, u=Depends(current_user)):
     t = r.topic.strip()
@@ -350,16 +423,21 @@ def create(r: Req, u=Depends(current_user)):
         r.kind = "chengyu"; r.style = "ink"
     if r.kind not in ("chengyu", "kepu") or r.style not in ("ink", "kids"): raise HTTPException(400, "参数错误")
     lang_mode = r.lang if r.lang in ("both", "cn", "en") else "both"
+    if r.aspect not in ("16:9", "9:16") or r.music not in ("auto", "guofeng", "light", "none"): raise HTTPException(400, "参数错误")
+    for v in (r.voice_zh, r.voice_en):
+        if v and v not in pipeline.VOICE_IDS: raise HTTPException(400, "不支持的音色")
+    if r.rate is not None and not -50 <= r.rate <= 50: raise HTTPException(400, "语速需在 -50% ~ +50% 之间")
+    opts = {"aspect": r.aspect, "music": r.music, "sfx": r.sfx, "voice_zh": r.voice_zh, "voice_en": r.voice_en, "rate": r.rate}
     with CREATE_LOCK:
         qi = quota_info(u)
         if qi["remaining"] is not None and qi["remaining"] <= 0:
             raise HTTPException(429, f"今日生成次数已用完（每日{qi['quota']}次），请明天再来")
         with db() as c:
-            if not u["is_admin"] and c.execute("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running')", (u["id"],)).fetchone():
-                raise HTTPException(429, "你已有一个视频正在生成，请等待完成后再提交")
+            check_busy(c, u)
             jid = uuid.uuid4().hex[:12]
-            c.execute("INSERT INTO jobs(id,user_id,topic,kind,style,lang,status,progress,message,created,day) VALUES(?,?,?,?,?,?,'queued',0,?,?,?)",
-                      (jid, u["id"], t, r.kind, r.style, lang_mode, f"排队中（前面{Q.qsize()}个）", time.time(), today()))
+            c.execute("INSERT INTO jobs(id,user_id,topic,kind,style,lang,status,progress,message,created,day,opts,phase) VALUES(?,?,?,?,?,?,'queued',0,?,?,?,?,?)",
+                      (jid, u["id"], t, r.kind, r.style, lang_mode, f"排队中（前面{Q.qsize()}个）", time.time(), today(),
+                       json.dumps(opts), "script" if r.review else "full"))
     Q.put(jid); return get(jid, u)
 
 def own_job(jid, u):
@@ -437,14 +515,238 @@ def get_topics_idiom_300():
     with open(p, "r", encoding="utf-8") as f: data = json.load(f)
     return filter_uncreated_topics(data)
 
+# ---------------- 剧本审核 / 单镜重绘 ----------------
+@app.get("/api/options")
+def options(u=Depends(current_user)):
+    return {"voices": pipeline.VOICES, "aspects": ["16:9", "9:16"],
+            "music": [["auto", "按画风自动"], ["guofeng", "古风"], ["light", "轻快"], ["none", "无音乐"]],
+            "regen_per_quota": REGEN_PER_QUOTA}
+
+class SceneEdit(BaseModel):
+    narration: str
+    narration_en: str | None = None
+    image_prompt: str | None = None
+
+class ScriptEdit(BaseModel):
+    title: str | None = None
+    title_en: str | None = None
+    character: str | None = None
+    scenes: list[SceneEdit]
+
+def _apply_scene(sc, e: SceneEdit):
+    n = e.narration.strip()
+    if not 1 <= len(n) <= 120: raise HTTPException(400, "每个场景中文旁白需为 1-120 字")
+    sc["narration"] = n
+    if e.narration_en is not None:
+        if len(e.narration_en) > 400: raise HTTPException(400, "英文旁白过长")
+        sc["narration_en"] = e.narration_en.strip()
+    if e.image_prompt is not None:
+        if len(e.image_prompt) > 600: raise HTTPException(400, "画面描述过长")
+        sc["image_prompt"] = e.image_prompt.strip()
+
+@app.get("/api/jobs/{jid}/script")
+def get_script(jid: str, u=Depends(current_user)):
+    r = own_job(jid, u); return json.loads(r["result"] or "{}").get("script") or {}
+
+@app.put("/api/jobs/{jid}/script")
+def put_script(jid: str, e: ScriptEdit, u=Depends(current_user)):
+    r = own_job(jid, u)
+    if r["status"] != "review": raise HTTPException(409, "当前状态不可编辑剧本")
+    res = json.loads(r["result"] or "{}"); s = res["script"]
+    if len(e.scenes) != len(s["scenes"]): raise HTTPException(400, "场景数量不可改变")
+    for sc, ed in zip(s["scenes"], e.scenes): _apply_scene(sc, ed)
+    if e.title is not None:
+        if not 1 <= len(e.title.strip()) <= 40: raise HTTPException(400, "标题需为 1-40 字")
+        s["title"] = e.title.strip()
+    if e.title_en is not None: s["title_en"] = e.title_en.strip()[:120]
+    if e.character is not None: s["character"] = e.character.strip()[:400]
+    s["_source"] = "edited"
+    update_job(jid, result=json.dumps(res, ensure_ascii=False)); return s
+
+@app.post("/api/jobs/{jid}/confirm")
+def confirm(jid: str, u=Depends(current_user)):
+    r = own_job(jid, u)
+    if r["status"] != "review": raise HTTPException(409, "当前状态不可确认")
+    update_job(jid, status="queued", phase="render", progress=0, message="剧本已确认，排队生成画面")
+    Q.put(jid); return get(jid, u)
+
+@app.post("/api/jobs/{jid}/cancel")
+def cancel(jid: str, u=Depends(current_user)):
+    r = own_job(jid, u)
+    if r["status"] != "review": raise HTTPException(409, "只能取消待审核的剧本")
+    update_job(jid, status="cancelled", message="已取消（不计入配额）"); return {"ok": True}
+
+class RegenReq(BaseModel):
+    narration: str | None = None
+    narration_en: str | None = None
+    image_prompt: str | None = None
+
+@app.get("/api/jobs/{jid}/scenes/{idx}/image")
+def scene_image(jid: str, idx: int, u=Depends(current_user)):
+    own_job(jid, u); p = os.path.join(OUT, jid, f"img{idx}.png")
+    if not os.path.exists(p): raise HTTPException(404)
+    return FileResponse(p, media_type="image/png")
+
+@app.post("/api/jobs/{jid}/scenes/{idx}/regenerate")
+def regenerate_scene(jid: str, idx: int, body: RegenReq, u=Depends(current_user)):
+    r = own_job(jid, u)
+    if r["status"] != "done": raise HTTPException(409, "只有已完成的视频可以重绘单个分镜")
+    res = json.loads(r["result"] or "{}"); s = res.get("script")
+    if not s or not 0 <= idx < len(s["scenes"]): raise HTTPException(400, "分镜不存在")
+    with CREATE_LOCK:
+        qi = quota_info(u)
+        if qi["quota"] is not None:
+            after = qi["jobs_today"] + math.ceil((qi["regens_today"] + 1) / REGEN_PER_QUOTA)
+            if after > qi["quota"]:
+                raise HTTPException(429, f"今日额度不足：每 {REGEN_PER_QUOTA} 次单镜重绘折算 1 次生成，请明天再来或升级会员")
+        with db() as c:
+            check_busy(c, u, exclude=jid)
+            if body.narration is not None:
+                _apply_scene(s["scenes"][idx], SceneEdit(narration=body.narration, narration_en=body.narration_en, image_prompt=body.image_prompt))
+            elif body.image_prompt is not None:
+                s["scenes"][idx]["image_prompt"] = body.image_prompt.strip()[:600]
+            c.execute("INSERT INTO regens(user_id,job_id,scene,day,created) VALUES(?,?,?,?,?)", (u["id"], jid, idx, today(), time.time()))
+            c.execute("UPDATE jobs SET status='queued', phase='regen', regen=?, progress=0, message=?, result=? WHERE id=?",
+                      (json.dumps([idx]), f"排队重绘第{idx+1}个分镜并重新合成", json.dumps(res, ensure_ascii=False), jid))
+    Q.put(jid); return get(jid, u)
+
+# ---------------- 会员套餐与订单 ----------------
+@app.get("/api/plans")
+def plans(req: Request):
+    cfg = plans_config()
+    return {"free_daily_quota": cfg.get("free_daily_quota", DAILY_QUOTA), "plans": cfg["plans"],
+            "providers": [{"id": p.id, "name": p.name} for p in payments.enabled() if p.configured()],
+            "regen_per_quota": REGEN_PER_QUOTA}
+
+class OrderReq(BaseModel):
+    plan: str
+    provider: str
+
+def grant_plan(c, uid, plan_id, days):
+    u = c.execute("SELECT plan, plan_expires FROM users WHERE id=?", (uid,)).fetchone()
+    base = u["plan_expires"] if (u["plan"] == plan_id and (u["plan_expires"] or 0) > time.time()) else time.time()
+    exp = base + days * 86400
+    c.execute("UPDATE users SET plan=?, plan_expires=? WHERE id=?", (plan_id, exp, uid)); return exp
+
+def mark_paid(oid, trade_no):
+    with LOCK, db() as c:
+        o = c.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+        if not o: raise HTTPException(404, "订单不存在")
+        if o["status"] == "paid": return o
+        c.execute("UPDATE orders SET status='paid', paid_at=?, trade_no=? WHERE id=?", (time.time(), trade_no, oid))
+        grant_plan(c, o["user_id"], o["plan"], o["days"])
+        return o
+
+@app.post("/api/orders")
+def create_order(o: OrderReq, req: Request, u=Depends(current_user)):
+    plan = find_plan(o.plan); prov = payments.get(o.provider)
+    if not plan: raise HTTPException(404, "套餐不存在")
+    if not prov or not prov.configured(): raise HTTPException(400, "该支付方式未开通")
+    oid = time.strftime("%Y%m%d%H%M%S") + secrets.token_hex(4)
+    order = {"id": oid, "user_id": u["id"], "plan": plan["id"], "plan_name": plan["name"], "amount_cents": int(plan["price_cents"]),
+             "days": int(plan["days"]), "provider": prov.id}
+    with db() as c:
+        c.execute("INSERT INTO orders(id,user_id,plan,plan_name,amount_cents,days,provider,status,created) VALUES(?,?,?,?,?,?,?,'pending',?)",
+                  (oid, u["id"], plan["id"], plan["name"], order["amount_cents"], order["days"], prov.id, time.time()))
+    try:
+        pay = prov.create(order, str(req.base_url))
+    except NotImplementedError as e:
+        with db() as c: c.execute("UPDATE orders SET status='closed', note=? WHERE id=?", (str(e), oid))
+        raise HTTPException(501, str(e))
+    return {"order_id": oid, "amount_cents": order["amount_cents"], "pay": pay}
+
+@app.get("/api/orders")
+def my_orders(u=Depends(current_user)):
+    with db() as c:
+        return [dict(r) for r in c.execute("SELECT id,plan_name,amount_cents,days,provider,status,created,paid_at FROM orders WHERE user_id=? ORDER BY created DESC LIMIT 50", (u["id"],))]
+
+@app.post("/api/pay/mock/{oid}/complete")
+def mock_complete(oid: str, u=Depends(current_user)):
+    if not payments.get("mock"): raise HTTPException(404, "模拟支付未启用")
+    with db() as c: o = c.execute("SELECT * FROM orders WHERE id=? AND user_id=?", (oid, u["id"])).fetchone()
+    if not o or o["provider"] != "mock": raise HTTPException(404, "订单不存在")
+    mark_paid(oid, "MOCK-" + secrets.token_hex(6)); return {"ok": True, **quota_info(current_user_by_id(u["id"]))}
+
+def current_user_by_id(uid):
+    with db() as c: return dict(c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
+
+@app.post("/api/pay/notify/{provider}")
+async def pay_notify(provider: str, req: Request):
+    prov = payments.get(provider)
+    if not prov or provider == "mock": raise HTTPException(404)
+    try:
+        oid, trade_no = prov.verify_notify(await req.body(), req.headers)
+    except NotImplementedError as e:
+        raise HTTPException(501, str(e))
+    mark_paid(oid, trade_no); return Response("success")
+
+@app.get("/pricing")
+def pricing_page(): return FileResponse(os.path.join(BASE, "static", "pricing.html"))
+
 # ---------------- 管理 ----------------
 @app.get("/api/admin/users")
 def admin_users(a=Depends(admin_user)):
     with db() as c:
-        rows = c.execute("""SELECT u.id,u.username,u.is_admin,u.quota,u.created,
-            (SELECT COUNT(*) FROM jobs j WHERE j.user_id=u.id AND j.day=? AND j.status!='error') today_used,
+        rows = c.execute("""SELECT u.id,u.username,u.is_admin,u.quota,u.created,u.plan,u.plan_expires,
+            (SELECT COUNT(*) FROM jobs j WHERE j.user_id=u.id AND j.day=? AND j.status NOT IN ('error','cancelled')) today_used,
             (SELECT COUNT(*) FROM jobs j WHERE j.user_id=u.id) total_jobs FROM users u ORDER BY u.id""", (today(),)).fetchall()
-    return {"default_quota": DAILY_QUOTA, "users": [dict(r) for r in rows]}
+    cfg = plans_config()
+    return {"default_quota": cfg.get("free_daily_quota", DAILY_QUOTA), "plans": cfg["plans"], "users": [dict(r) for r in rows]}
+
+class PlanGrant(BaseModel):
+    plan: str | None = None   # None = 取消会员
+    days: int = 30
+
+@app.post("/api/admin/users/{uid}/plan")
+def admin_grant(uid: int, g: PlanGrant, a=Depends(admin_user)):
+    with db() as c:
+        if not c.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone(): raise HTTPException(404, "用户不存在")
+        if g.plan is None:
+            c.execute("UPDATE users SET plan=NULL, plan_expires=NULL WHERE id=?", (uid,)); return {"ok": True}
+        if not find_plan(g.plan): raise HTTPException(404, "套餐不存在")
+        if not 1 <= g.days <= 3650: raise HTTPException(400, "天数需为 1-3650")
+        exp = grant_plan(c, uid, g.plan, g.days)
+        c.execute("INSERT INTO orders(id,user_id,plan,plan_name,amount_cents,days,provider,status,created,paid_at,note) VALUES(?,?,?,?,0,?,'admin','paid',?,?,?)",
+                  ("ADM" + time.strftime("%Y%m%d%H%M%S") + secrets.token_hex(3), uid, g.plan, find_plan(g.plan)["name"], g.days, time.time(), time.time(), f"管理员 {a['username']} 手动开通"))
+    return {"ok": True, "plan_expires": exp}
+
+class PlanItem(BaseModel):
+    id: str
+    name: str
+    price_cents: int
+    days: int
+    daily_quota: int | None = None   # None = 不限
+    desc: str = ""
+
+class PlansCfg(BaseModel):
+    free_daily_quota: int
+    plans: list[PlanItem]
+
+@app.get("/api/admin/plans")
+def admin_get_plans(a=Depends(admin_user)): return plans_config()
+
+@app.put("/api/admin/plans")
+def admin_put_plans(cfg: PlansCfg, a=Depends(admin_user)):
+    if not 0 <= cfg.free_daily_quota <= 1000: raise HTTPException(400, "免费配额需在 0-1000 之间")
+    ids = set()
+    for p in cfg.plans:
+        if not re.fullmatch(r"[a-z0-9_]{1,20}", p.id) or p.id in ids or p.id == "free": raise HTTPException(400, f"套餐 ID 无效或重复：{p.id}")
+        ids.add(p.id)
+        if not (0 <= p.price_cents <= 10_000_000 and 1 <= p.days <= 3650 and (p.daily_quota is None or 0 <= p.daily_quota <= 1000) and 1 <= len(p.name) <= 20):
+            raise HTTPException(400, f"套餐参数无效：{p.name}")
+    data = cfg.model_dump()
+    with db() as c: c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('plans',?)", (json.dumps(data, ensure_ascii=False),))
+    return data
+
+@app.post("/api/admin/plans/reset")
+def admin_reset_plans(a=Depends(admin_user)):
+    with db() as c: c.execute("DELETE FROM settings WHERE key='plans'")
+    return plans_config()
+
+@app.get("/api/admin/orders")
+def admin_orders(a=Depends(admin_user)):
+    with db() as c:
+        return [dict(r) for r in c.execute("SELECT o.*, u.username FROM orders o LEFT JOIN users u ON u.id=o.user_id ORDER BY o.created DESC LIMIT 100")]
 
 class QuotaReq(BaseModel):
     quota: int | None = None  # None = 恢复默认

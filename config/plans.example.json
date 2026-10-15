@@ -1,0 +1,6 @@
+{
+  "free_daily_quota": 3,
+  "plans": [
+    {"id": "monthly", "name": "月卡", "price_cents": 1990, "days": 30, "daily_quota": 5, "desc": "30 天内每天 5 次生成"}
+  ]
+}
