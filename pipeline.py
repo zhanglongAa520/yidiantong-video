@@ -1,12 +1,31 @@
 """视频生成流水线：脚本 -> 图片 -> 配音 -> ffmpeg 合成。提供者可插拔（环境变量配置）。"""
-import os, json, math, random, subprocess, base64, re, hashlib, time
+import os, json, math, random, subprocess, base64, re, hashlib, time, threading
 import requests
 from PIL import Image, ImageDraw, ImageFilter
 
 FONT = os.getenv("CJK_FONT", "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc")
 VOICE = os.getenv("TTS_VOICE", "Cherry")
 BASE = os.path.dirname(os.path.abspath(__file__))
-W, H = 1280, 720
+AUDIO_DIR = os.path.join(BASE, "assets", "audio")
+W, H = 1280, 720   # 插画/占位图的基础横屏尺寸
+_CV = threading.local()
+def dims():
+    """当前任务的输出画布尺寸（线程隔离）：16:9 → 1280x720，9:16 → 1080x1920。"""
+    return getattr(_CV, "wh", (1280, 720))
+def set_canvas(aspect):
+    _CV.wh = (1080, 1920) if aspect == "9:16" else (1280, 720)
+def is_vertical(): return dims()[1] > dims()[0]
+def comp_hint(): return "vertical 9:16 portrait composition" if is_vertical() else "16:9 composition"
+
+# 可选配音音色（edge-tts，免费无需 Key）
+VOICES = {
+    "zh": [("zh-CN-XiaoxiaoNeural", "晓晓 · 温柔女声"), ("zh-CN-YunxiNeural", "云希 · 阳光男声"),
+           ("zh-CN-YunjianNeural", "云健 · 浑厚男声"), ("zh-CN-XiaoyiNeural", "晓伊 · 活泼童趣女声"),
+           ("zh-CN-YunxiaNeural", "云夏 · 童声男孩")],
+    "en": [("en-US-JennyNeural", "Jenny · female"), ("en-US-GuyNeural", "Guy · male"),
+           ("en-US-AriaNeural", "Aria · female"), ("en-US-AnaNeural", "Ana · child")],
+}
+VOICE_IDS = {v for l in VOICES.values() for v, _ in l}
 STYLES = {
     "ink": "traditional Chinese ink-wash painting, muted monochrome with light red accents, rice paper texture, misty mountains",
     "kids": "warm colorful children's picture book illustration, soft watercolor, cute rounded characters",
@@ -17,6 +36,7 @@ STYLES = {
 BUILTIN = {
     "刻舟求剑": {
         "title": "刻舟求剑", "subtitle": "成语故事", "image_dir": "builtin/kezhouqiujian",
+        "character": "an elderly man of the ancient Chu state, grey hair tied in a topknot, long white beard, wearing a loose light-grey hanfu robe",
         "title_en": "Marking the Boat to Find the Sword",
         "subtitle_en": "Ancient Chinese Wisdom & Classical Physics",
         "publish_info": {
@@ -64,6 +84,11 @@ BUILTIN = {
     },
 }
 
+TEMPLATE_CHARACTER = {
+    "chengyu": "an ancient Chinese man in a plain grey hanfu robe, hair in a topknot, thin black beard, calm expression",
+    "kepu": "a cheerful cartoon child with short black hair, round face, rosy cheeks, yellow T-shirt and blue shorts",
+}
+
 def template_script(topic, kind):
     """无 key 时的模板脚本兜底（同时提供中文与地道英文版本）。"""
     if kind == "kepu":
@@ -102,6 +127,7 @@ def template_script(topic, kind):
         sub_en = "Classic Idiom Story"
 
     return {
+        "character": TEMPLATE_CHARACTER["chengyu" if kind != "kepu" else "kepu"],
         "title": topic,
         "subtitle": sub + "（模板脚本）",
         "title_en": f"The Science of {topic}" if kind == "kepu" else f"The Story of {topic}",
@@ -156,6 +182,8 @@ def llm_script(topic, kind):
               "   - publish_info（中文）：爆款标题（<=30字）、通俗看点描述（50-80字）、5个中文热门标签；\n"
               "   - publish_info_en（英文）：Viral TikTok Title (<=60字符)、Engaging Description (40-60 words)、5个热门英文标签（如 #LearnOnTikTok #ScienceFacts 等）。\n"
               '只输出JSON：{"title":"","subtitle":"","title_en":"","subtitle_en":"","publish_info":{"title":"","description":"","tags":["#标签1","#标签2"]},"publish_info_en":{"title":"","description":"","tags":["#Tag1","#Tag2"]},"scenes":[{"narration":"","narration_en":"","image_prompt":""}]}')
+    prompt += ('\n另外在 JSON 顶层增加 "character" 字段：用一句英文写出贯穿全片的主角设定卡'
+               '（外貌、年龄、发型、服饰颜色等固定特征），保证每个分镜的主角形象一致。')
     r = requests.post(base.rstrip("/") + "/chat/completions", timeout=120,
                       headers={"Authorization": f"Bearer {key}"},
                       json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7})
@@ -252,6 +280,12 @@ def translate_script_to_english(script, topic, kind):
     return script
 
 def get_script(topic, kind, log):
+    s, src = _get_script(topic, kind, log)
+    s = json.loads(json.dumps(s, ensure_ascii=False))   # 深拷贝，避免修改内置脚本
+    s.setdefault("character", TEMPLATE_CHARACTER["kepu" if kind == "kepu" else "chengyu"])
+    return s, src
+
+def _get_script(topic, kind, log):
     if topic in BUILTIN:
         log("使用内置脚本"); return BUILTIN[topic], "builtin"
     if os.getenv("LLM_BASE_URL") and os.getenv("LLM_API_KEY"):
@@ -273,11 +307,11 @@ def qwen_image(prompt, style, out):
         "model": model,
         "input": {
             "messages": [
-                {"role": "user", "content": [{"text": f"{prompt}. Style: {STYLES[style]}. 16:9 composition, no text, no letters."}]}
+                {"role": "user", "content": [{"text": f"{prompt}. Style: {STYLES[style]}. {comp_hint()}, no text, no letters."}]}
             ]
         },
         "parameters": {
-            "size": os.getenv("IMAGE_SIZE", "1280*720"),
+            "size": ("720*1280" if is_vertical() else os.getenv("IMAGE_SIZE", "1280*720")),
             "n": 1,
             "watermark": watermark
         }
@@ -290,15 +324,26 @@ def qwen_image(prompt, style, out):
     raw = requests.get(img_url, timeout=60).content
     save_image(raw, out)
 
-def api_image(prompt, style, out):
-    """OpenAI 兼容生图接口：调用 /images/generations 接口生成图片。"""
+def api_image(prompt, style, out, ref=None):
+    """OpenAI 兼容生图接口：/images/generations；传入参考图（主角首图）时改用 /images/edits 保持角色一致。"""
     key = os.getenv("IMAGE_API_KEY")
     base = os.getenv("IMAGE_BASE_URL", "https://api.openai.com/v1")
     model = os.getenv("IMAGE_MODEL", "gpt-image-1")
+    size = "1024x1536" if is_vertical() else os.getenv("IMAGE_SIZE", "1536x1024")
+    full = f"{prompt}. Style: {STYLES[style]}. {comp_hint()}, no text, no letters."
+    if ref and os.path.exists(ref) and os.getenv("IMAGE_USE_REFERENCE", "1") == "1":
+        with open(ref, "rb") as f:
+            r = requests.post(base.rstrip("/") + "/images/edits", timeout=300, headers={"Authorization": f"Bearer {key}"},
+                              files={"image": ("ref.png", f, "image/png")},
+                              data={"model": model, "size": size, "n": 1,
+                                    "prompt": full + " Keep the main character's face, hair and clothing identical to the reference image; new scene and pose."})
+        if r.ok:
+            d = r.json()["data"][0]
+            raw = base64.b64decode(d["b64_json"]) if d.get("b64_json") else requests.get(d["url"], timeout=120).content
+            return save_image(raw, out)
     r = requests.post(base.rstrip("/") + "/images/generations", timeout=300,
                       headers={"Authorization": f"Bearer {key}"},
-                      json={"model": model, "prompt": f"{prompt}. Style: {STYLES[style]}. 16:9 composition, no text, no letters.",
-                            "size": os.getenv("IMAGE_SIZE", "1536x1024"), "n": 1})
+                      json={"model": model, "prompt": full, "size": size, "n": 1})
     r.raise_for_status()
     d = r.json()["data"][0]
     raw = base64.b64decode(d["b64_json"]) if d.get("b64_json") else requests.get(d["url"], timeout=120).content
@@ -311,9 +356,9 @@ def wanx_image(prompt, style, out):
     r = requests.post(base + "/services/aigc/text2image/image-synthesis", timeout=60,
                       headers={**h, "X-DashScope-Async": "enable"},
                       json={"model": os.getenv("IMAGE_MODEL", "wan2.2-t2i-flash"),
-                            "input": {"prompt": f"{prompt}. Style: {STYLES[style]}. 16:9 composition, no text, no letters.",
+                            "input": {"prompt": f"{prompt}. Style: {STYLES[style]}. {comp_hint()}, no text, no letters.",
                                       "negative_prompt": "文字, 字母, 水印, 低质量, 肢体畸形"},
-                            "parameters": {"size": os.getenv("IMAGE_SIZE", "1440*810"), "n": 1}})
+                            "parameters": {"size": ("810*1440" if is_vertical() else os.getenv("IMAGE_SIZE", "1440*810")), "n": 1}})
     if not r.ok: raise RuntimeError(f"万相提交失败：{r.text}")
     tid = r.json()["output"]["task_id"]
     for _ in range(100):  # 最多约 5 分钟
@@ -331,12 +376,24 @@ def save_image(raw, out):
     Image.open(out + ".src").convert("RGB").save(out)
     fit(out)
 
-def fit(path):
-    """等比例放大并居中裁剪图片为标准视频分辨率。"""
-    im = Image.open(path).convert("RGB"); s = max(W / im.width, H / im.height)
-    im = im.resize((math.ceil(im.width * s), math.ceil(im.height * s)))
-    l, t = (im.width - W) // 2, (im.height - H) // 2
-    im.crop((l, t, l + W, t + H)).save(path)
+def fit(path, out=None):
+    """适配到当前画布：宽高比接近时居中裁剪；横图放进竖屏（或反之）时用模糊放大背景 + 完整原图居中，避免裁掉主体。"""
+    W, H = dims(); im = Image.open(path).convert("RGB")
+    def cover(img, w, h):
+        s = max(w / img.width, h / img.height)
+        img = img.resize((math.ceil(img.width * s), math.ceil(img.height * s)))
+        l, t = (img.width - w) // 2, (img.height - h) // 2
+        return img.crop((l, t, l + w, t + h))
+    ra, rb = im.width / im.height, W / H
+    if max(ra, rb) / min(ra, rb) < 1.3:
+        res = cover(im, W, H)
+    else:
+        res = cover(im, W, H).filter(ImageFilter.GaussianBlur(40))
+        res = Image.blend(res, Image.new("RGB", (W, H), (236, 228, 210)), 0.25)
+        s = min(W / im.width, H / im.height); fg = im.resize((int(im.width * s), int(im.height * s)))
+        y = (H - fg.height) // 2 - (int(H * 0.06) if H > W else 0)
+        res.paste(fg, ((W - fg.width) // 2, y))
+    res.save(out or path)
 
 def procedural_image(seed, idx, n, style, out):
     """无 key 时的程序化占位图（水墨 / 绘本两种配色）。"""
@@ -412,7 +469,7 @@ def sanitize_prompt_via_llm(orig_prompt, topic, style="kids"):
         pass
     return fallback
 
-def get_image(script, i, style, out, log):
+def get_image(script, i, style, out, log, ref=None):
     """获取场景配图：优先内置图片，若配置了API则全部调用百炼接口真实生成，具备智能安全净化重试机制（严禁退化为简图）。"""
     sc = script["scenes"][i]
     topic = script.get("title", "成语" if style == "ink" else "科普")
@@ -428,11 +485,14 @@ def get_image(script, i, style, out, log):
         dispatch = {
             "qwen": lambda p: qwen_image(p, style, out),
             "wanx": lambda p: wanx_image(p, style, out),
-            "openai": lambda p: api_image(p, style, out),
+            "openai": lambda p: api_image(p, style, out, ref=ref),
         }
         gen_fn = dispatch.get(provider, lambda p: qwen_image(p, style, out))
 
-        curr_prompt = sc["image_prompt"]
+        char = (script.get("character") or "").strip()
+        def with_char(pr):
+            return f"{pr}. Main character (must look identical in every scene): {char}" if char else pr
+        curr_prompt = with_char(sc["image_prompt"])
         max_attempts = 3
         last_error = None
 
@@ -445,7 +505,7 @@ def get_image(script, i, style, out, log):
                 log(f"第{i+1}张分镜百炼生图第{attempt}次遇到异常: {e}")
                 if attempt == 1:
                     log(f"正在调用大模型为第{i+1}张分镜重构合规的提示词...")
-                    curr_prompt = sanitize_prompt_via_llm(sc["image_prompt"], topic, style)
+                    curr_prompt = with_char(sanitize_prompt_via_llm(sc["image_prompt"], topic, style))
                 elif attempt == 2:
                     if style == "ink":
                         log(f"启用第{i+1}张分镜的传统中国古风水墨保底提示词重试百炼生图...")
@@ -467,7 +527,8 @@ def get_image(script, i, style, out, log):
         raise RuntimeError(f"第{i+1}张分镜调用百炼生图失败，已重试{max_attempts}次: {last_error}")
 
     # 仅在完全没有配置生图 API 密钥时作为演示兜底
-    seed = int(hashlib.md5((script["title"] + str(i)).encode()).hexdigest()[:8], 16)
+    # 占位图：同一故事共用色板/人物剪影，seed 仅随场景与“重绘次数”变化
+    seed = int(hashlib.md5((script["title"] + str(i) + str(sc.get("variant", 0))).encode()).hexdigest()[:8], 16)
     procedural_image(seed, i, len(script["scenes"]), style, out)
     return "procedural"
 
@@ -506,13 +567,16 @@ def qwen_tts(text, out, lang="zh"):
         return True
     return False
 
-def tts(text, out, lang="zh"):
-    """旁白配音：优先尝试通义 qwen3-tts-flash，回退至 edge-tts（支持中文与英文出海原声）。"""
+def tts(text, out, lang="zh", voice=None, rate=None):
+    """旁白配音：用户指定 edge-tts 音色/语速时直接使用 edge-tts；否则优先通义 qwen3-tts-flash，回退至 edge-tts。"""
     tts_provider = os.getenv("TTS_PROVIDER", "qwen")
     default_edge_voice = "en-US-JennyNeural" if lang == "en" else os.getenv("EDGE_TTS_VOICE", "zh-CN-XiaoxiaoNeural")
+    edge_voice = voice if voice in VOICE_IDS else default_edge_voice
+    rate_s = f"{int(rate):+d}%" if rate is not None else "-5%"
+    use_qwen = tts_provider == "qwen" and not voice and rate is None
     attempts = [
-        lambda: qwen_tts(text, out, lang=lang) if tts_provider == "qwen" else False,
-        lambda: (run(["python3", "-m", "edge_tts", "--voice", default_edge_voice, "--rate=-5%", "--text", text, "--write-media", out]) is None or True),
+        lambda: qwen_tts(text, out, lang=lang) if use_qwen else False,
+        lambda: (run(["python3", "-m", "edge_tts", "--voice", edge_voice, f"--rate={rate_s}", "--text", text, "--write-media", out]) is None or True),
     ]
     for attempt in attempts:
         try:
@@ -648,14 +712,78 @@ def enc():
     """返回标准 ffmpeg 视频输出编码参数列表。"""
     return ["-r", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-ac", "2"]
 
-def render_single_video(script, lang, wd, out_video, style, bgc, adv_fn, log):
-    """根据指定语言渲染独立视频版本（纯中文版或纯英文出海版），插画复用已有图片。"""
-    is_en = (lang == "en")
-    lang_tag = "en" if is_en else "zh"
-    prefix = "【英文出海版】" if is_en else "【中文版】"
-    log(f"开始压制{prefix}成片...")
+def _wrap_for_canvas(text, lang):
+    """竖屏字幕更窄：中文每行约 13 字，英文约 28 字符。"""
+    if not is_vertical(): return wrap_narration(text, lang=lang)
+    if lang == "en":
+        import textwrap
+        return "\n".join(textwrap.wrap(text, width=28)[:4])
+    if len(text) <= 13: return text
+    k = math.ceil(len(text) / math.ceil(len(text) / 13))
+    lines = [text[i:i + k] for i in range(0, len(text), k)]
+    for j in range(1, len(lines)):   # 避免行首标点
+        while lines[j] and lines[j][0] in "，。！？、；：,.!?;:”）》":
+            lines[j - 1] += lines[j][0]; lines[j] = lines[j][1:]
+    return "\n".join(l for l in lines if l)
 
-    # 1. 标题卡处理
+def _tts_cached(text, wd, lang, opts):
+    """按 文本+音色+语速 缓存配音，单镜重绘/重渲染时无需重复合成。"""
+    voice = opts.get("voice_en" if lang == "en" else "voice_zh") or None
+    rate = opts.get("rate")
+    key = hashlib.md5(f"{lang}|{voice}|{rate}|{text}".encode()).hexdigest()[:12]
+    f = os.path.join(wd, f"tts_{key}.mp3")
+    if os.path.exists(f) and os.path.getsize(f) > 500: return f, True
+    ok = tts(text, f, lang=lang, voice=voice, rate=rate)
+    return f, ok
+
+def pick_music(style, topic, choice):
+    """背景音乐选择：auto=按画风（水墨→古风，绘本→轻快），none=不加。"""
+    if choice == "none": return None
+    kind = choice if choice in ("guofeng", "light") else ("light" if style == "kids" else "guofeng")
+    n = int(hashlib.md5(topic.encode()).hexdigest(), 16) % 2 + 1
+    f = os.path.join(AUDIO_DIR, f"music_{kind}_{n}.m4a")
+    return f if os.path.exists(f) else None
+
+def mix_audio(video, starts, total, style, topic, opts, wd):
+    """背景音乐（随旁白自动闪避 ducking）+ 转场音效，视频流直接复制。"""
+    music = pick_music(style, topic, opts.get("music", "auto"))
+    sfx = opts.get("sfx", True)
+    whoosh, chime = os.path.join(AUDIO_DIR, "sfx_whoosh.m4a"), os.path.join(AUDIO_DIR, "sfx_chime.m4a")
+    if not music and not sfx: return
+    ins = ["-i", video]; fc = ["[0:a]asplit=2[nar][sc]"]; mix = ["[nar]"]; k = 1
+    if music:
+        vol = float(os.getenv("MUSIC_VOLUME", "0.18"))
+        ins += ["-stream_loop", "-1", "-i", music]
+        fc.append(f"[{k}:a]volume={vol},atrim=0:{total:.2f},afade=t=in:d=1.5,afade=t=out:st={max(0, total - 2.5):.2f}:d=2.5[m]")
+        fc.append("[m][sc]sidechaincompress=threshold=0.02:ratio=12:attack=20:release=400:makeup=1[md]")
+        mix.append("[md]"); k += 1
+    else:
+        fc.append("[sc]anullsink")
+    if sfx and os.path.exists(whoosh):
+        ins += ["-i", chime, "-i", whoosh]
+        fc.append(f"[{k}:a]volume=0.5,adelay=200|200[ch]"); mix.append("[ch]")
+        cuts = starts[1:]
+        if cuts:
+            fc.append(f"[{k+1}:a]asplit={len(cuts)}" + "".join(f"[w{j}]" for j in range(len(cuts))))
+            for j, t in enumerate(cuts):
+                ms = max(0, int(t * 1000) - 250)
+                fc.append(f"[w{j}]volume=0.45,adelay={ms}|{ms}[wd{j}]"); mix.append(f"[wd{j}]")
+    fc.append("".join(mix) + f"amix=inputs={len(mix)}:duration=first:normalize=0,alimiter=limit=0.95[aout]")
+    tmp = video + ".mix.mp4"
+    run(["ffmpeg", "-y", *ins, "-filter_complex", ";".join(fc), "-map", "0:v", "-map", "[aout]",
+         "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart", "-t", f"{total:.2f}", tmp])
+    os.replace(tmp, video)
+
+def render_single_video(script, lang, wd, out_video, style, bgc, adv_fn, log, opts=None):
+    """根据指定语言渲染独立视频版本（纯中文版或纯英文出海版），插画复用已有图片；支持 16:9 / 9:16。"""
+    opts = opts or {}
+    W, H = dims(); vert = is_vertical()
+    is_en = (lang == "en")
+    lang_tag = ("en" if is_en else "zh") + ("_v" if vert else "")
+    prefix = "【英文出海版】" if is_en else "【中文版】"
+    log(f"开始压制{prefix}{'竖屏 9:16 ' if vert else ''}成片...")
+
+    # 1. 标题卡
     if is_en:
         t_val = script.get("title_en") or script.get("title", "")
         s_val = script.get("subtitle_en") or script.get("subtitle", "")
@@ -664,122 +792,126 @@ def render_single_video(script, lang, wd, out_video, style, bgc, adv_fn, log):
         t_val = script.get("title", "")
         s_val = script.get("subtitle", "")
         fmt_t, t_size, t_space, t_y, fmt_sub, s_size, s_space, s_y = layout_title_and_subtitle(t_val, s_val)
+    if vert:   # 竖屏：标题字号随宽度缩放、纵向居中略偏上
+        sc_ = W / 1280 * 1.1; t_size, s_size = int(t_size * sc_), int(s_size * sc_ * 1.2)
+        t_y = f"(h-th)/2-{int(H*0.06)}"; s_y = f"h/2+{int(H*0.05)}"
 
-    title_file = f"{wd}/title_{lang_tag}.txt"
-    subt_file = f"{wd}/subt_{lang_tag}.txt"
+    title_file = f"{wd}/title_{lang_tag}.txt"; subt_file = f"{wd}/subt_{lang_tag}.txt"
     open(title_file, "w", encoding="utf-8").write(fmt_t)
     open(subt_file, "w", encoding="utf-8").write(fmt_sub)
-
-    t_audio = f"{wd}/t_{lang_tag}.mp3"
-    has_t = tts(t_val, t_audio, lang=lang)
+    t_audio, has_t = _tts_cached(t_val, wd, lang, opts)
     ain = ["-i", t_audio] if has_t else ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
     run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"color=c={bgc}:s={W}x{H}:d=4", *ain, "-vf",
          f"drawtext=fontfile={FONT}:textfile={title_file}:fontsize={t_size}:fontcolor=0x28282d:line_spacing={t_space}:expansion=none:x=(w-tw)/2:y={t_y},"
          f"drawtext=fontfile={FONT}:textfile={subt_file}:fontsize={s_size}:fontcolor=0xaf281e:line_spacing={s_space}:expansion=none:x=(w-tw)/2:y={s_y}",
          "-af", "apad", "-t", "4", *enc(), f"{wd}/s_t_{lang_tag}.mp4"])
-
-    segs = [f"{wd}/s_t_{lang_tag}.mp4"]
+    segs = [f"{wd}/s_t_{lang_tag}.mp4"]; starts = [0.0]; t_acc = 4.0
     narr_ok = has_t
 
-    # 2. 分镜画面合成
-    sub_fontsize = 30 if is_en else 36
+    # 2. 分镜
+    sub_fontsize = (44 if is_en else 54) if vert else (30 if is_en else 36)
+    sub_y = f"h*0.74" if vert else "h-th-40"
     for i, sc in enumerate(script["scenes"]):
-        narration_text = sc.get("narration_en") if is_en else sc.get("narration")
-        if not narration_text:
-            narration_text = sc.get("narration", "")
-
-        a_file = f"{wd}/a{i}_{lang_tag}.mp3"
-        ok = tts(narration_text, a_file, lang=lang)
+        narration_text = (sc.get("narration_en") if is_en else sc.get("narration")) or sc.get("narration", "")
+        a_file, ok = _tts_cached(narration_text, wd, lang, opts)
         narr_ok = narr_ok and ok
         d = (dur(a_file) if ok else max(4, len(narration_text.split() if is_en else narration_text) * (0.35 if is_en else 0.25))) + 1.2
         nf = int(d * 30)
-
+        frame = f"{wd}/frame{i}_{lang_tag}.png"; fit(f"{wd}/img{i}.png", frame)
         sub_file = f"{wd}/sub{i}_{lang_tag}.txt"
-        open(sub_file, "w", encoding="utf-8").write(wrap_narration(narration_text, lang=lang))
+        open(sub_file, "w", encoding="utf-8").write(_wrap_for_canvas(narration_text, lang))
         ai = ["-i", a_file] if ok else ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
-        run(["ffmpeg", "-y", "-loop", "1", "-i", f"{wd}/img{i}.png", *ai, "-filter_complex",
-             f"[0]scale=2560:1440,zoompan=z='1+0.12*on/{nf}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={nf}:s={W}x{H}:fps=30,"
-             f"drawtext=fontfile={FONT}:textfile={sub_file}:fontsize={sub_fontsize}:fontcolor=white:borderw=3:bordercolor=0x202020:line_spacing=10:expansion=none:x=(w-tw)/2:y=h-th-40[v];[1]apad[a]",
+        run(["ffmpeg", "-y", "-loop", "1", "-i", frame, *ai, "-filter_complex",
+             f"[0]scale={W*2}:{H*2},zoompan=z='1+0.12*on/{nf}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={nf}:s={W}x{H}:fps=30,"
+             f"drawtext=fontfile={FONT}:textfile={sub_file}:fontsize={sub_fontsize}:fontcolor=white:borderw={4 if vert else 3}:bordercolor=0x202020:line_spacing={14 if vert else 10}:expansion=none:x=(w-tw)/2:y={sub_y}[v];[1]apad[a]",
              "-map", "[v]", "-map", "[a]", "-t", f"{d:.2f}", *enc(), f"{wd}/s{i}_{lang_tag}.mp4"])
-        segs.append(f"{wd}/s{i}_{lang_tag}.mp4")
+        segs.append(f"{wd}/s{i}_{lang_tag}.mp4"); starts.append(t_acc); t_acc += d
         adv_fn(f"{prefix}第{i+1}段配音与画面完成")
 
-    # 3. 拼接输出
+    # 3. 拼接 + 混音
     list_file = f"{wd}/list_{lang_tag}.txt"
     open(list_file, "w", encoding="utf-8").write("".join(f"file '{os.path.abspath(s)}'\n" for s in segs))
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", "-movflags", "+faststart", out_video])
+    try:
+        mix_audio(out_video, starts, dur(out_video), style, script.get("title", ""), opts, wd)
+    except Exception as e:
+        log(f"背景音乐/音效混音失败，保留纯旁白：{e}")
     return round(dur(out_video), 1), narr_ok
 
-def build(topic, kind, style, wd, out, progress, lang_mode="both"):
-    """流水线生成主函数：负责脚本、生图、配音与最终视频合成（支持中文版、英文出海版或双版本同时生成）。"""
+def make_script(topic, kind, log, lang_mode="both"):
+    """仅生成（或继承）剧本，用于“先审稿再出图”流程。"""
+    script, src = get_script(topic, kind, log)
+    if lang_mode in ("both", "en"):
+        script = translate_script_to_english(script, topic, kind)
+    return script, src
+
+def build(topic, kind, style, wd, out, progress, lang_mode="both", opts=None, script=None, regen=None):
+    """流水线主函数：剧本 → 插画 → 配音 → 合成（中文版 / 英文出海版 / 双版本；16:9 或 9:16）。
+    script: 用户审核/编辑后的剧本（提供时不再自动生成或继承）；regen: 需要重绘插画的场景下标列表。"""
+    opts = opts or {}
+    set_canvas(opts.get("aspect", "16:9"))
     os.makedirs(wd, exist_ok=True); log = lambda m: progress(None, m)
     import shutil
 
-    # 优先检测本地是否已有该主题的高清插画与剧本（确保中英文版本 100% 镜头一致）
-    inherited_job = find_existing_job(topic)
-    if inherited_job and (lang_mode == "en" or not os.path.exists(f"{wd}/img0.png")):
-        exist_p, exist_s = inherited_job
-        log(f"检测到《{topic}》已有中文版高清插画，已自动继承！确保英文版与中文版画面 100% 镜头一致")
-        script = translate_script_to_english(exist_s, topic, kind)
-        src = "inherited"
-        for i in range(len(script.get("scenes", []))):
-            src_img = os.path.join(exist_p, f"img{i}.png")
-            dst_img = f"{wd}/img{i}.png"
-            if os.path.exists(src_img) and not os.path.exists(dst_img):
-                shutil.copy2(src_img, dst_img)
+    if script is not None:
+        src = script.get("_source", "edited")
     else:
-        script, src = get_script(topic, kind, log)
+        inherited_job = find_existing_job(topic)
+        if inherited_job and (lang_mode == "en" or not os.path.exists(f"{wd}/img0.png")):
+            exist_p, exist_s = inherited_job
+            log(f"检测到《{topic}》已有高清插画，已自动继承！确保中英文版本画面 100% 镜头一致")
+            script = translate_script_to_english(exist_s, topic, kind)
+            src = "inherited"
+            for i in range(len(script.get("scenes", []))):
+                src_img = os.path.join(exist_p, f"img{i}.png"); dst_img = f"{wd}/img{i}.png"
+                if os.path.exists(src_img) and not os.path.exists(dst_img):
+                    shutil.copy2(src_img, dst_img)
+        else:
+            script, src = get_script(topic, kind, log)
+    script.setdefault("character", TEMPLATE_CHARACTER["kepu" if kind == "kepu" else "chengyu"])
+    if lang_mode in ("both", "en") and not all(sc.get("narration_en") for sc in script["scenes"]):
+        script = translate_script_to_english(script, topic, kind)
+
+    for i in (regen or []):   # 单镜重绘：删除旧图并递增 variant
+        if 0 <= i < len(script["scenes"]):
+            sc = script["scenes"][i]; sc["variant"] = int(sc.get("variant", 0)) + 1
+            for f in (f"{wd}/img{i}.png", f"{wd}/img{i}.png.src"):
+                if os.path.exists(f): os.remove(f)
 
     json.dump(script, open(f"{wd}/script.json", "w"), ensure_ascii=False, indent=1)
     n = len(script["scenes"])
-
-    do_cn = (lang_mode in ("both", "cn"))
-    do_en = (lang_mode in ("both", "en"))
-    total_phases = (1 if do_cn else 0) + (1 if do_en else 0)
-    total_steps = 2 + n + (n * total_phases)
+    do_cn = lang_mode in ("both", "cn"); do_en = lang_mode in ("both", "en")
+    total_steps = 2 + n + n * ((1 if do_cn else 0) + (1 if do_en else 0))
     step = [1]
     def adv(m):
-        step[0] += 1
-        progress(int(100 * step[0] / total_steps), m)
+        step[0] += 1; progress(int(100 * step[0] / total_steps), m)
+    progress(int(100 / total_steps), f"剧本就绪（{src}），共{n}个场景")
 
-    progress(int(100 / total_steps), f"中英文双语剧本生成完成（{src}），共{n}个场景")
-
-    # 1. 高清分镜插画生成（若已有继承图片则直接复用，极大节约 API 资源与耗时）
     srcs = []
     for i in range(n):
         img_target = f"{wd}/img{i}.png"
         if os.path.exists(img_target) and os.path.getsize(img_target) > 1000:
-            srcs.append("inherited")
-            adv(f"第{i+1}张插画复用中文原版（镜头100%一致）")
+            srcs.append("reused"); adv(f"第{i+1}张插画复用")
         else:
-            srcs.append(get_image(script, i, style, img_target, log))
+            ref = f"{wd}/img0.png.src" if i > 0 else None   # 以首图为角色参考图（支持的提供方）
+            if script.get("image_dir") and i in (regen or []):
+                sv = script["image_dir"]; script["image_dir"] = None
+                srcs.append(get_image(script, i, style, img_target, log, ref=ref)); script["image_dir"] = sv
+            else:
+                srcs.append(get_image(script, i, style, img_target, log, ref=ref))
             adv(f"第{i+1}张插画生成完成（{srcs[-1]}）")
 
     bgc = "0xFAF0D7" if style == "kids" else "0xECE4D2"
-
-    dur_cn, narr_cn = 0, False
-    dur_en, narr_en = 0, False
+    dur_cn = dur_en = 0; narr_cn = narr_en = False
     out_en = os.path.splitext(out)[0] + "_en.mp4"
-
-    # 2. 中文版视频压制
     if do_cn:
-        dur_cn, narr_cn = render_single_video(script, "zh", wd, out, style, bgc, adv, log)
+        dur_cn, narr_cn = render_single_video(script, "zh", wd, out, style, bgc, adv, log, opts)
         log(f"中文版视频压制完成，时长 {dur_cn}s")
-
-    # 3. 英文出海版视频压制
     if do_en:
         target_en = out if not do_cn else out_en
-        dur_en, narr_en = render_single_video(script, "en", wd, target_en, style, bgc, adv, log)
+        dur_en, narr_en = render_single_video(script, "en", wd, target_en, style, bgc, adv, log, opts)
         log(f"英文出海版视频压制完成，时长 {dur_en}s")
-
-    return {
-        "duration": dur_cn if do_cn else dur_en,
-        "duration_en": dur_en,
-        "has_cn": do_cn,
-        "has_en": do_en,
-        "script_source": src,
-        "image_sources": srcs,
-        "narration": narr_cn,
-        "narration_en": narr_en,
-        "script": script
-    }
+    json.dump(script, open(f"{wd}/script.json", "w"), ensure_ascii=False, indent=1)
+    return {"duration": dur_cn if do_cn else dur_en, "duration_en": dur_en, "has_cn": do_cn, "has_en": do_en,
+            "script_source": src, "image_sources": srcs, "narration": narr_cn, "narration_en": narr_en,
+            "aspect": opts.get("aspect", "16:9"), "script": script}
