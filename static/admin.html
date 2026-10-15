@@ -202,16 +202,38 @@
               <th>账号角色</th>
               <th>今日已消耗</th>
               <th>历史累计任务</th>
-              <th>每日配额设定 (留空=系统默认)</th>
+              <th>每日配额设定 (留空=按套餐)</th>
+              <th>会员套餐</th>
             </tr>
           </thead>
           <tbody id="tb">
             <tr>
-              <td colspan="6" id="loadingMsg">正在载入用户数据...</td>
+              <td colspan="7" id="loadingMsg">正在载入用户数据...</td>
             </tr>
           </tbody>
         </table>
       </div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card-header"><h2 class="card-title">💎 套餐与配额配置</h2>
+        <span style="font-size:13px;color:#64748B">保存后立即生效，无需重启；定价页同步更新</span></div>
+      <div style="margin:4px 0 12px;font-size:14px">免费用户每日生成次数：<input type="number" id="freeQuota" class="quota-input" min="0" max="1000"></div>
+      <div class="table-container"><table>
+        <thead><tr><th>ID（英文）</th><th>名称</th><th>价格（元）</th><th>有效天数</th><th>每日次数（空=不限）</th><th>说明</th><th></th></tr></thead>
+        <tbody id="planRows"></tbody></table></div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button class="btn-save" onclick="addPlanRow()">＋ 新增套餐</button>
+        <button class="btn-save" style="background:#1B5E20" onclick="savePlans()">💾 保存配置</button>
+        <button class="btn-save" style="background:#94A3B8" onclick="resetPlans()">恢复默认（配置文件/环境变量）</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card-header"><h2 class="card-title">🧾 最近订单</h2></div>
+      <div class="table-container"><table>
+        <thead><tr><th>订单号</th><th>用户</th><th>套餐</th><th>金额</th><th>支付方式</th><th>状态</th><th>时间</th></tr></thead>
+        <tbody id="orderRows"></tbody></table></div>
     </div>
   </div>
 
@@ -309,13 +331,71 @@
             tdQuota.append(inp, btn);
           }
           tr.appendChild(tdQuota);
+
+          // 会员套餐：显示 + 手动开通
+          const tdPlan = document.createElement('td');
+          const active = u.plan && u.plan_expires && u.plan_expires * 1000 > Date.now();
+          const info = document.createElement('div');
+          info.style.fontSize = '12px'; info.style.marginBottom = '4px';
+          info.textContent = active ? `${(j.plans.find(p => p.id === u.plan) || {}).name || u.plan} · 到期 ${new Date(u.plan_expires * 1000).toLocaleDateString('zh-CN')}` : '免费版';
+          const sel = document.createElement('select'); sel.className = 'quota-input'; sel.style.width = '90px';
+          sel.innerHTML = j.plans.map(p => `<option value="${p.id}">${p.name}</option>`).join('') + '<option value="">取消会员</option>';
+          const days = document.createElement('input'); days.type = 'number'; days.className = 'quota-input'; days.style.width = '60px'; days.value = 30; days.title = '天数';
+          const gb = document.createElement('button'); gb.className = 'btn-save'; gb.textContent = '开通';
+          gb.onclick = async () => {
+            const r = await fetch(`/api/admin/users/${u.id}/plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ plan: sel.value || null, days: +days.value || 30 }) });
+            alert(r.ok ? '已更新会员' : ((await r.json()).detail || '失败')); load();
+          };
+          tdPlan.append(info, sel, days, gb);
+          tr.appendChild(tdPlan);
           tb.appendChild(tr);
         });
       } catch (err) {
         document.getElementById('loadingMsg').textContent = '载入用户数据失败: ' + err.message;
       }
     }
-    load();
+    // ---------- 套餐配置 ----------
+    const h = t => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    function planRow(p = {}) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><input class="quota-input" style="width:90px" data-k="id" value="${h(p.id)}"></td>
+        <td><input class="quota-input" style="width:80px" data-k="name" value="${h(p.name)}"></td>
+        <td><input class="quota-input" type="number" step="0.01" min="0" style="width:80px" data-k="price" value="${p.price_cents != null ? (p.price_cents / 100).toFixed(2) : ''}"></td>
+        <td><input class="quota-input" type="number" min="1" style="width:70px" data-k="days" value="${h(p.days ?? 30)}"></td>
+        <td><input class="quota-input" type="number" min="0" style="width:70px" data-k="daily_quota" value="${p.daily_quota ?? ''}" placeholder="不限"></td>
+        <td><input class="quota-input" style="width:180px" data-k="desc" value="${h(p.desc)}"></td>
+        <td><button class="btn-save" style="background:#DC2626" onclick="this.closest('tr').remove()">删除</button></td>`;
+      return tr;
+    }
+    function addPlanRow() { document.getElementById('planRows').appendChild(planRow()); }
+    async function loadPlans() {
+      const r = await fetch('/api/admin/plans'); if (!r.ok) return;
+      const c = await r.json(); document.getElementById('freeQuota').value = c.free_daily_quota;
+      const tb = document.getElementById('planRows'); tb.innerHTML = ''; c.plans.forEach(p => tb.appendChild(planRow(p)));
+    }
+    async function savePlans() {
+      const plans = [...document.querySelectorAll('#planRows tr')].map(tr => {
+        const g = k => tr.querySelector(`[data-k="${k}"]`).value.trim();
+        return { id: g('id'), name: g('name'), price_cents: Math.round(parseFloat(g('price') || '0') * 100), days: parseInt(g('days') || '30', 10),
+                 daily_quota: g('daily_quota') === '' ? null : parseInt(g('daily_quota'), 10), desc: g('desc') };
+      });
+      const r = await fetch('/api/admin/plans', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ free_daily_quota: parseInt(document.getElementById('freeQuota').value || '0', 10), plans }) });
+      alert(r.ok ? '已保存，立即生效' : ((await r.json()).detail || '保存失败')); loadPlans(); load();
+    }
+    async function resetPlans() {
+      if (!confirm('恢复为配置文件/环境变量中的默认套餐？')) return;
+      await fetch('/api/admin/plans/reset', { method: 'POST' }); loadPlans(); load();
+    }
+    async function loadOrders() {
+      const r = await fetch('/api/admin/orders'); if (!r.ok) return;
+      const st = { paid: '✅ 已支付', pending: '⏳ 待支付', closed: '已关闭' };
+      document.getElementById('orderRows').innerHTML = (await r.json()).map(o => `<tr><td style="font-size:12px">${h(o.id)}</td><td>${h(o.username)}</td>
+        <td>${h(o.plan_name)} · ${o.days}天</td><td>¥${(o.amount_cents / 100).toFixed(2)}</td><td>${h(o.provider)}</td><td>${st[o.status] || h(o.status)}</td>
+        <td style="font-size:12px">${new Date(o.created * 1000).toLocaleString('zh-CN')}</td></tr>`).join('') || '<tr><td colspan="7">暂无订单</td></tr>';
+    }
+    load(); loadPlans(); loadOrders();
   </script>
 </body>
 </html>

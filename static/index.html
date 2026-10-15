@@ -336,6 +336,19 @@
       transform: translateY(-1px);
     }
 
+    .opt-panel{display:flex;flex-wrap:wrap;gap:12px 18px;margin:4px 0 14px;padding:12px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;font-size:13px}
+    .opt-item{display:flex;flex-direction:column;gap:5px;min-width:120px}.opt-item>label{color:#64748B;font-weight:600}
+    .opt-item select{padding:6px 8px;border:1px solid #CBD5E1;border-radius:7px;background:#fff;font-size:13px}
+    .opt-checks{justify-content:flex-end;gap:6px}.opt-checks label{color:#334155!important;font-weight:500!important;cursor:pointer}
+    .seg{display:flex;border:1px solid #CBD5E1;border-radius:7px;overflow:hidden}.seg span{padding:6px 10px;cursor:pointer;background:#fff}.seg span.on{background:#1B5E20;color:#fff}
+    .rv-mask{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:flex-start;justify-content:center;z-index:999;overflow:auto;padding:30px 12px}
+    .rv-box{background:#fff;border-radius:14px;max-width:860px;width:100%;padding:22px 24px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+    .rv-box h3{margin:0 0 6px}.rv-tip{color:#64748B;font-size:13px;margin-bottom:12px}
+    .rv-scene{border:1px solid #E2E8F0;border-radius:10px;padding:10px 12px;margin-bottom:10px}
+    .rv-scene b{font-size:13px;color:#1B5E20}.rv-scene textarea,.rv-box input.rv-in{width:100%;box-sizing:border-box;border:1px solid #CBD5E1;border-radius:7px;padding:7px 9px;font-size:13px;font-family:inherit;margin-top:5px}
+    .rv-scene textarea{min-height:44px;resize:vertical}.rv-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px;position:sticky;bottom:0;background:#fff;padding-top:8px}
+    .rv-btn{border:0;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer}.rv-btn.ok{background:#1B5E20;color:#fff}.rv-btn.no{background:#F1F5F9;color:#334155}
+    .rv-thumb{width:120px;border-radius:6px;float:right;margin-left:10px}
     #statusBox {
       display: none;
       margin-top: 18px;
@@ -619,6 +632,18 @@
         </div>
       </div>
 
+      <!-- 画幅 / 配音 / 音乐 / 审稿 选项 -->
+      <div class="opt-panel">
+        <div class="opt-item"><label>画幅</label>
+          <div class="seg" id="aspectSeg"><span data-v="16:9" class="on">🖥️ 横屏 16:9</span><span data-v="9:16">📱 竖屏 9:16</span></div></div>
+        <div class="opt-item"><label>中文配音</label><select id="voiceZh"></select></div>
+        <div class="opt-item"><label>英文配音</label><select id="voiceEn"></select></div>
+        <div class="opt-item"><label>语速 <b id="rateVal">0%</b></label><input type="range" id="rate" min="-30" max="30" step="5" value="0" oninput="document.getElementById('rateVal').innerText=(this.value>0?'+':'')+this.value+'%'"></div>
+        <div class="opt-item"><label>背景音乐</label><select id="music"><option value="auto">按画风自动</option><option value="guofeng">古风</option><option value="light">轻快</option><option value="none">无音乐</option></select></div>
+        <div class="opt-item opt-checks"><label><input type="checkbox" id="sfx" checked> 转场音效</label>
+          <label title="先生成剧本，修改满意后再生成画面"><input type="checkbox" id="review"> 先审稿再出图</label></div>
+      </div>
+
       <div class="input-group">
         <input type="text" id="topicInput" placeholder="例如：为什么刚睡醒眼睛里会有眼屎？为什么洗澡时间长了手指会起皱？为什么衣服拉链能咬紧？" maxlength="40">
         <button class="btn-primary" id="genBtn" onclick="triggerGenerate()">开始一键生成</button>
@@ -656,6 +681,7 @@
   </div>
 
   <div id="toast">已复制到剪贴板</div>
+  <div class="rv-mask" id="rvMask"><div class="rv-box" id="rvBox"></div></div>
 
   <!-- 精品选题库弹窗 -->
   <div id="topicsModal" class="modal-overlay" onclick="closeTopicsModal(event)">
@@ -729,7 +755,7 @@
         const user = await res.json();
         const ub = document.getElementById('userBox');
         ub.innerHTML = `
-          <span>👤 ${user.username} · 今日剩余 <b>${user.remaining === null ? '不限' : user.remaining + ' 次'}</b></span>
+          <span>👤 ${user.username} · <a href="/pricing" title="会员与套餐">${user.plan === 'free' ? '免费版' : '💎 ' + user.plan_name}</a> · 今日剩余 <b>${user.remaining === null ? '不限' : user.remaining + ' 次'}</b></span>
           ${user.is_admin ? '<a href="/admin">用户管理</a>' : ''}
           <a href="#" onclick="logout(event)">退出登录</a>
         `;
@@ -1039,7 +1065,8 @@
           };
 
           const badgeClass = item.status === 'done' ? '' : (item.status === 'error' ? 'error' : 'running');
-          let badgeText = '⏳ 正在处理中';
+          let badgeText = item.status === 'review' ? '📝 待审核' : (item.status === 'cancelled' ? '已取消' : '⏳ 正在处理中');
+          if (item.aspect === '9:16') badgeText = '📱 ' + badgeText;
           if (item.status === 'done') {
             if (item.has_en && item.video) badgeText = '🎬 中英双版本成片就绪';
             else if (item.has_en) badgeText = '🇺🇸 英文出海版成片就绪';
@@ -1141,12 +1168,20 @@
                     </a>
                   ` : ''}
 
+                  <button class="action-link secondary" onclick="openRegen('${item.id}')">🎨 单镜重绘</button>
                   <button class="action-link secondary" onclick="openInFinder('${item.id}', '${item.has_en ? 'en' : 'cn'}')">
                     📂 在访达中定位
                   </button>
                   <button class="action-link secondary" onclick="retryJob('${escapeQuotes(item.topic)}', '${item.kind || 'kepu'}', '${item.style || 'kids'}', '${item.lang || 'both'}')">
                     🔄 再次生成
                   </button>
+                ` : item.status === 'review' ? `
+                  <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:8px;">
+                    <span style="font-size:13px; color:#B45309;">📝 剧本待审核：修改满意后确认即可生成画面</span>
+                    <button class="action-link" style="background:#1B5E20; color:#FFF; font-weight:bold; padding:6px 14px;" onclick="openReview('${item.id}')">继续审稿</button>
+                  </div>
+                ` : (item.status === 'queued' || item.status === 'running') ? `
+                  <span style="font-size:13px; color:#0D47A1;">⏳ ${item.message}</span>
                 ` : `
                   <div style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:8px;">
                     <span style="font-size:12px; color:#DC2626; flex:1; min-width:220px; line-height:1.4;">
@@ -1188,6 +1223,68 @@
 
     let pollTimer = null;
 
+    function pollTask(taskId, topic) {
+      const btn = document.getElementById('genBtn');
+      const box = document.getElementById('statusBox');
+      const progressContainer = document.getElementById('progressContainer');
+      const progressBar = document.getElementById('progressBar');
+      const progressPercent = document.getElementById('progressPercent');
+      const progressStep = document.getElementById('progressStep');
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      progressContainer.style.display = 'block'; box.style.display = 'block';
+      box.style.background = '#E3F2FD'; box.style.color = '#0D47A1';
+      btn.disabled = true; btn.innerText = '正在生成中...';
+        pollTimer = setInterval(async () => {
+          try {
+            const statusRes = await fetch('/api/jobs/' + encodeURIComponent(taskId));
+            if (!statusRes.ok) return;
+
+            const task = await statusRes.json();
+            const pct = Math.max(5, Math.min(100, task.progress || 5));
+            progressBar.style.width = pct + '%';
+            progressPercent.innerText = pct + '%';
+            progressStep.innerText = task.message || '正在处理中...';
+            box.innerText = '⏳ ' + (task.message || '正在生成中...');
+
+            if (task.status === 'review') {
+              clearInterval(pollTimer); pollTimer = null;
+              progressStep.innerText = '剧本已生成，等待审核';
+              box.innerHTML = '📝 剧本已生成，请在弹窗中审核修改后确认生成画面。<a href="#" onclick="openReview(\'' + taskId + '\');return false;">重新打开审稿</a>';
+              btn.disabled = false; btn.innerText = '开始一键生成';
+              openReview(taskId); loadProjects();
+            } else if (task.status === 'done') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              progressBar.style.width = '100%';
+              progressPercent.innerText = '100%';
+              progressStep.innerText = '成片生成完成！';
+              box.style.background = '#E8F5E9';
+              box.style.color = '#1B5E20';
+              const isDual = task.has_en && task.video;
+              box.innerHTML = `✅ 恭喜！《${topic}》${isDual ? '中英双版本独立成片' : '成片'}已生成完成！时长：${task.duration || task.duration_en}秒<br>` +
+                (task.video ? `<a href="${task.video}" target="_blank" style="font-weight:bold; color:#0D47A1; margin-right:12px; margin-top:8px; display:inline-block;">👉 播放中文版成片 ↗</a>` : '') +
+                (task.video_en ? `<a href="${task.video_en}" target="_blank" style="font-weight:bold; color:#1D4ED8; margin-top:8px; display:inline-block;">👉 播放英文出海版 ↗</a>` : '');
+              loadProjects();
+              initUser();
+              loadAllTopics();
+              btn.disabled = false;
+              btn.innerText = '开始一键生成';
+            } else if (task.status === 'error') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              box.style.background = '#FFEBEE';
+              box.style.color = '#C62828';
+              box.innerText = '❌ 生成失败: ' + task.message;
+              btn.disabled = false;
+              btn.innerText = '开始一键生成';
+              loadProjects();
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        }, 1500);
+    }
+
     async function triggerGenerate() {
       const topic = document.getElementById('topicInput').value.trim();
       if (!topic) return alert('请输入科普主题！');
@@ -1220,7 +1317,7 @@
         const res = await fetch('/api/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: topic, mode: currentMode, lang: currentLang })
+          body: JSON.stringify(Object.assign({ topic: topic, mode: currentMode, lang: currentLang }, getGenOpts()))
         });
 
         if (res.status === 401) {
@@ -1240,49 +1337,7 @@
         const taskId = data.id;
         initUser();
 
-        pollTimer = setInterval(async () => {
-          try {
-            const statusRes = await fetch('/api/jobs/' + encodeURIComponent(taskId));
-            if (!statusRes.ok) return;
-
-            const task = await statusRes.json();
-            const pct = Math.max(5, Math.min(100, task.progress || 5));
-            progressBar.style.width = pct + '%';
-            progressPercent.innerText = pct + '%';
-            progressStep.innerText = task.message || '正在处理中...';
-            box.innerText = '⏳ ' + (task.message || '正在生成中...');
-
-            if (task.status === 'done') {
-              clearInterval(pollTimer);
-              pollTimer = null;
-              progressBar.style.width = '100%';
-              progressPercent.innerText = '100%';
-              progressStep.innerText = '成片生成完成！';
-              box.style.background = '#E8F5E9';
-              box.style.color = '#1B5E20';
-              const isDual = task.has_en && task.video;
-              box.innerHTML = `✅ 恭喜！《${topic}》${isDual ? '中英双版本独立成片' : '成片'}已生成完成！时长：${task.duration || task.duration_en}秒<br>` +
-                (task.video ? `<a href="${task.video}" target="_blank" style="font-weight:bold; color:#0D47A1; margin-right:12px; margin-top:8px; display:inline-block;">👉 播放中文版成片 ↗</a>` : '') +
-                (task.video_en ? `<a href="${task.video_en}" target="_blank" style="font-weight:bold; color:#1D4ED8; margin-top:8px; display:inline-block;">👉 播放英文出海版 ↗</a>` : '');
-              loadProjects();
-              initUser();
-              loadAllTopics();
-              btn.disabled = false;
-              btn.innerText = '开始一键生成';
-            } else if (task.status === 'error') {
-              clearInterval(pollTimer);
-              pollTimer = null;
-              box.style.background = '#FFEBEE';
-              box.style.color = '#C62828';
-              box.innerText = '❌ 生成失败: ' + task.message;
-              btn.disabled = false;
-              btn.innerText = '开始一键生成';
-              loadProjects();
-            }
-          } catch (err) {
-            console.error(err);
-          }
-        }, 1500);
+        pollTask(taskId, topic);
 
       } catch (err) {
         box.innerText = '❌ 提交失败: ' + err.message;
@@ -1291,7 +1346,78 @@
       }
     }
 
+    // ---------- 生成选项 / 审稿 / 单镜重绘 ----------
+    let genAspect = '16:9';
+    document.querySelectorAll('#aspectSeg span').forEach(el => el.onclick = () => {
+      document.querySelectorAll('#aspectSeg span').forEach(x => x.classList.remove('on')); el.classList.add('on'); genAspect = el.dataset.v; });
+    async function loadOptions() {
+      try {
+        const o = await (await fetch('/api/options')).json();
+        const fill = (id, list) => { document.getElementById(id).innerHTML = '<option value="">默认</option>' + list.map(v => `<option value="${v[0]}">${v[1]}</option>`).join(''); };
+        fill('voiceZh', o.voices.zh); fill('voiceEn', o.voices.en);
+      } catch (e) { console.error(e); }
+    }
+    function getGenOpts() {
+      const rate = parseInt(document.getElementById('rate').value, 10);
+      const vz = document.getElementById('voiceZh').value, ve = document.getElementById('voiceEn').value;
+      return { aspect: genAspect, music: document.getElementById('music').value, sfx: document.getElementById('sfx').checked,
+               voice_zh: vz || null, voice_en: ve || null, rate: (rate === 0 && !vz && !ve) ? null : rate,
+               review: document.getElementById('review').checked };
+    }
+    const esc = t => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    function closeRv() { document.getElementById('rvMask').style.display = 'none'; }
+    async function openReview(jid) {
+      const s = await (await fetch('/api/jobs/' + jid + '/script')).json();
+      const box = document.getElementById('rvBox');
+      box.innerHTML = `<h3>📝 审核剧本</h3><div class="rv-tip">可逐镜修改中文/英文旁白与画面描述；确认后才会开始生成画面（取消不计入配额）。</div>
+        <label style="font-size:13px;font-weight:600">标题</label><input class="rv-in" id="rvTitle" maxlength="40" value="${esc(s.title)}">
+        <label style="font-size:13px;font-weight:600;display:block;margin-top:8px">主角设定卡（用于保持各分镜人物一致）</label><input class="rv-in" id="rvChar" value="${esc(s.character)}">
+        <div style="margin-top:12px">${s.scenes.map((sc, i) => `<div class="rv-scene"><b>分镜 ${i + 1}</b>
+          <textarea data-k="narration" data-i="${i}" maxlength="120">${esc(sc.narration)}</textarea>
+          <textarea data-k="narration_en" data-i="${i}" placeholder="English narration">${esc(sc.narration_en)}</textarea>
+          <input class="rv-in" data-k="image_prompt" data-i="${i}" placeholder="画面描述（英文）" value="${esc(sc.image_prompt)}"></div>`).join('')}</div>
+        <div class="rv-actions"><button class="rv-btn no" onclick="cancelReview('${jid}')">放弃此剧本</button><button class="rv-btn no" onclick="closeRv()">稍后再审</button><button class="rv-btn ok" onclick="confirmReview('${jid}')">✅ 确认并生成画面</button></div>`;
+      document.getElementById('rvMask').style.display = 'flex';
+    }
+    function collectScenes(n) {
+      const sc = Array.from({ length: n }, () => ({}));
+      document.querySelectorAll('#rvBox [data-k]').forEach(el => { sc[+el.dataset.i][el.dataset.k] = el.value; });
+      return sc;
+    }
+    async function confirmReview(jid) {
+      const n = document.querySelectorAll('#rvBox .rv-scene').length;
+      const body = { title: document.getElementById('rvTitle').value, character: document.getElementById('rvChar').value, scenes: collectScenes(n) };
+      let r = await fetch('/api/jobs/' + jid + '/script', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) return alert((await r.json()).detail || '保存失败');
+      r = await fetch('/api/jobs/' + jid + '/confirm', { method: 'POST' });
+      if (!r.ok) return alert((await r.json()).detail || '确认失败');
+      closeRv(); pollTask(jid, body.title); loadProjects();
+    }
+    async function cancelReview(jid) {
+      if (!confirm('确定放弃这个剧本吗？（不计入今日配额）')) return;
+      await fetch('/api/jobs/' + jid + '/cancel', { method: 'POST' }); closeRv(); loadProjects(); initUser();
+    }
+    async function openRegen(jid) {
+      const [s, me] = await Promise.all([fetch('/api/jobs/' + jid + '/script').then(r => r.json()), fetch('/api/me').then(r => r.json())]);
+      const box = document.getElementById('rvBox');
+      box.innerHTML = `<h3>🎨 单镜重绘</h3><div class="rv-tip">选择一个分镜，可修改旁白/画面描述后重绘该镜插画并重新合成视频（其它分镜保持不变）。
+        计费规则：每 ${me.regen_per_quota} 次单镜重绘折算 1 次生成（不足按 1 次计）。今日已重绘 ${me.regens_today} 次，剩余额度 ${me.remaining === null ? '不限' : me.remaining}。</div>
+        ${s.scenes.map((sc, i) => `<div class="rv-scene"><img class="rv-thumb" src="/api/jobs/${jid}/scenes/${i}/image?t=${Date.now()}" onerror="this.remove()"><b>分镜 ${i + 1}</b>
+          <textarea data-k="narration" data-i="${i}" maxlength="120">${esc(sc.narration)}</textarea>
+          <input class="rv-in" data-k="image_prompt" data-i="${i}" value="${esc(sc.image_prompt)}">
+          <div style="text-align:right;margin-top:6px;clear:both"><button class="rv-btn ok" style="padding:6px 14px" onclick="doRegen('${jid}', ${i})">重绘此镜</button></div></div>`).join('')}
+        <div class="rv-actions"><button class="rv-btn no" onclick="closeRv()">关闭</button></div>`;
+      document.getElementById('rvMask').style.display = 'flex';
+    }
+    async function doRegen(jid, i) {
+      const g = k => document.querySelector(`#rvBox [data-k="${k}"][data-i="${i}"]`).value;
+      const r = await fetch(`/api/jobs/${jid}/scenes/${i}/regenerate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ narration: g('narration'), image_prompt: g('image_prompt') }) });
+      if (!r.ok) return alert((await r.json()).detail || '重绘失败');
+      const j = await r.json(); closeRv(); window.scrollTo({ top: 0, behavior: 'smooth' }); pollTask(jid, j.topic); initUser();
+    }
+
     // 页面加载启动
+    loadOptions();
     initUser();
     loadAllTopics();
     loadProjects();
