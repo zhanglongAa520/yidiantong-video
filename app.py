@@ -18,7 +18,7 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "0") == "1"
 LOGIN_MAX, LOGIN_WINDOW = int(os.getenv("LOGIN_MAX_ATTEMPTS", "10")), int(os.getenv("LOGIN_WINDOW_SEC", "900"))
 COOKIE = "session"
 
-app = FastAPI(title="成语/科普 短视频生成器")
+app = FastAPI(title="一点通短视频")
 Q = queue.Queue(); LOCK = threading.Lock()
 
 def db():

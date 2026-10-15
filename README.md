@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎨 成语·科普 AI 短视频工作台
+# 🎨 一点通短视频（Yidiantong Shorts）
 
 **输入一个成语或科普问题，一键生成约 1 分钟的配音字幕短视频，并同时产出中文版 + 英文出海版和抖音 / TikTok 发布文案。**
 
@@ -88,8 +88,8 @@ brew install ffmpeg-full
 ### 2. 安装
 
 ```bash
-git clone https://github.com/zhanglongAa520/idiom-video-app.git
-cd idiom-video-app
+git clone https://github.com/zhanglongAa520/yidiantong-video.git
+cd yidiantong-video
 python3 -m venv .venv && source .venv/bin/activate
 pip install fastapi uvicorn requests edge-tts pillow bcrypt
 ```
@@ -195,9 +195,9 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 
    ```ini
    [Service]
-   WorkingDirectory=/var/www/idiom-video-app
-   EnvironmentFile=/var/www/idiom-video-app/.env
-   ExecStart=/var/www/idiom-video-app/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8080
+   WorkingDirectory=/var/www/yidiantong-video
+   EnvironmentFile=/var/www/yidiantong-video/.env
+   ExecStart=/var/www/yidiantong-video/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8080
    Restart=always
    ```
 
@@ -223,7 +223,7 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 
 ## 🌏 English
 
-**Idiom & Science AI Short-Video Studio** — type a Chinese idiom or a science question and get a ~1-minute, 1280×720 narrated, subtitled video, in a **Chinese version and an English version for global platforms**, plus ready-to-paste Douyin / TikTok titles, descriptions and hashtags.
+**Yidiantong Shorts (一点通短视频)** — type a Chinese idiom or a science question and get a ~1-minute, 1280×720 narrated, subtitled video, in a **Chinese version and an English version for global platforms**, plus ready-to-paste Douyin / TikTok titles, descriptions and hashtags.
 
 **Features**
 - Automatic pipeline: script → illustrations → narration → Ken Burns motion + burned-in subtitles (FFmpeg).
@@ -242,7 +242,7 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 **Quick start**
 ```bash
 sudo apt install -y ffmpeg fonts-noto-cjk python3-venv
-git clone https://github.com/zhanglongAa520/idiom-video-app.git && cd idiom-video-app
+git clone https://github.com/zhanglongAa520/yidiantong-video.git && cd yidiantong-video
 python3 -m venv .venv && source .venv/bin/activate
 pip install fastapi uvicorn requests edge-tts pillow bcrypt
 echo "ADMIN_USERNAME=admin" > .env && echo "ADMIN_PASSWORD=change-me" >> .env
