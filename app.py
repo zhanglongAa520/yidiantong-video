@@ -1,4 +1,4 @@
-import os, math, uuid, queue, threading, time, json, sqlite3, secrets, traceback, datetime, re, subprocess
+import os, math, uuid, queue, threading, time, json, sqlite3, secrets, traceback, datetime, re, subprocess, hashlib
 from collections import defaultdict, deque
 from zoneinfo import ZoneInfo
 import bcrypt
@@ -758,9 +758,42 @@ def set_quota(uid: int, q: QuotaReq, a=Depends(admin_user)):
         if c.execute("UPDATE users SET quota=? WHERE id=?", (q.quota, uid)).rowcount == 0: raise HTTPException(404, "用户不存在")
     return {"ok": True}
 
+VOICE_SAMPLE_TEXTS = {
+    "zh-CN-XiaoxiaoNeural": "你好，我是晓晓。为你讲述身边的硬核科学与国学智慧。",
+    "zh-CN-YunxiNeural": "你好，我是云希。带你探索大自然与成语背后的科学奥秘。",
+    "zh-CN-YunjianNeural": "天地玄黄，宇宙洪荒。为你解读流传千年的历史传奇。",
+    "zh-CN-XiaoyiNeural": "小朋友，快来跟我一起探索神奇又好玩的大自然吧！",
+    "zh-CN-YunxiaNeural": "你好呀！今天又有什么好玩的科学小秘密在等着我们呢？",
+    "en-US-JennyNeural": "Hello, I'm Jenny. Welcome to Yidiantong Shorts generator.",
+    "en-US-GuyNeural": "Hi there, I'm Guy. Let's explore the science and stories behind the world.",
+    "en-US-AriaNeural": "Hello, this is Aria. Let's discover amazing facts and ancient wisdom together.",
+    "en-US-AnaNeural": "Hi, I'm Ana! Are you ready for an exciting journey of discovery?",
+}
+
+@app.get("/api/voice/audition")
+def audition_voice(voice: str = "", lang: str = "zh", rate: int = 0):
+    """根据所选音色与语速生成或读取试听音频片段，支持本地缓存以实现秒开播放。"""
+    default_voice = "en-US-JennyNeural" if lang == "en" else "zh-CN-XiaoxiaoNeural"
+    v = voice if voice in pipeline.VOICE_IDS else default_voice
+    rate_clamped = max(-30, min(30, rate))
+    sample_text = VOICE_SAMPLE_TEXTS.get(v, "Hello, welcome!" if lang == "en" else "你好，欢迎使用一点通短视频创作工作台。")
+
+    audition_dir = os.path.join(OUT, "_audition")
+    os.makedirs(audition_dir, exist_ok=True)
+    cache_key = hashlib.md5(f"{v}_{rate_clamped}_{sample_text}".encode()).hexdigest()[:12]
+    cache_file = os.path.join(audition_dir, f"{v}_{rate_clamped}_{cache_key}.mp3")
+
+    if not (os.path.exists(cache_file) and os.path.getsize(cache_file) > 1000):
+        ok = pipeline.tts(sample_text, cache_file, lang=lang, voice=v, rate=rate_clamped)
+        if not ok or not os.path.exists(cache_file):
+            raise HTTPException(500, "试听音频生成失败，请稍后重试")
+
+    return FileResponse(cache_file, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=86400"})
+
 @app.get("/admin")
 def admin_page(): return FileResponse(os.path.join(BASE, "static", "admin.html"))
 @app.get("/login")
 def login_page(): return FileResponse(os.path.join(BASE, "static", "login.html"))
 
+app.mount("/assets", StaticFiles(directory=os.path.join(BASE, "assets")), name="assets")
 app.mount("/", StaticFiles(directory=os.path.join(BASE, "static"), html=True), name="static")

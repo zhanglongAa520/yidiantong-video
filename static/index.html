@@ -339,6 +339,9 @@
     .opt-panel{display:flex;flex-wrap:wrap;gap:12px 18px;margin:4px 0 14px;padding:12px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;font-size:13px}
     .opt-item{display:flex;flex-direction:column;gap:5px;min-width:120px}.opt-item>label{color:#64748B;font-weight:600}
     .opt-item select{padding:6px 8px;border:1px solid #CBD5E1;border-radius:7px;background:#fff;font-size:13px}
+    .btn-audition{padding:5px 9px;font-size:12px;font-weight:600;border:1px solid #CBD5E1;background:#fff;color:#334155;border-radius:7px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:3px;transition:all .15s ease;flex-shrink:0;height:31px;box-sizing:border-box}
+    .btn-audition:hover{background:#F1F5F9;border-color:#94A3B8;color:#0F172A}
+    .btn-audition.playing{background:#EFF6FF;border-color:#3B82F6;color:#1D4ED8}
     .opt-checks{justify-content:flex-end;gap:6px}.opt-checks label{color:#334155!important;font-weight:500!important;cursor:pointer}
     .seg{display:flex;border:1px solid #CBD5E1;border-radius:7px;overflow:hidden}.seg span{padding:6px 10px;cursor:pointer;background:#fff}.seg span.on{background:#1B5E20;color:#fff}
     .rv-mask{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:flex-start;justify-content:center;z-index:999;overflow:auto;padding:30px 12px}
@@ -636,10 +639,25 @@
       <div class="opt-panel">
         <div class="opt-item"><label>画幅</label>
           <div class="seg" id="aspectSeg"><span data-v="16:9" class="on">🖥️ 横屏 16:9</span><span data-v="9:16">📱 竖屏 9:16</span></div></div>
-        <div class="opt-item"><label>中文配音</label><select id="voiceZh"></select></div>
-        <div class="opt-item"><label>英文配音</label><select id="voiceEn"></select></div>
+        <div class="opt-item"><label>中文配音</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="voiceZh" style="flex:1;min-width:130px;"></select>
+            <button type="button" class="btn-audition" id="auditionZhBtn" onclick="auditionVoice('zh')" title="试听当前选中的中文配音">🔊 试听</button>
+          </div>
+        </div>
+        <div class="opt-item"><label>英文配音</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="voiceEn" style="flex:1;min-width:130px;"></select>
+            <button type="button" class="btn-audition" id="auditionEnBtn" onclick="auditionVoice('en')" title="试听当前选中的英文配音">🔊 试听</button>
+          </div>
+        </div>
         <div class="opt-item"><label>语速 <b id="rateVal">0%</b></label><input type="range" id="rate" min="-30" max="30" step="5" value="0" oninput="document.getElementById('rateVal').innerText=(this.value>0?'+':'')+this.value+'%'"></div>
-        <div class="opt-item"><label>背景音乐</label><select id="music"><option value="auto">按画风自动</option><option value="guofeng">古风</option><option value="light">轻快</option><option value="none">无音乐</option></select></div>
+        <div class="opt-item"><label>背景音乐</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="music"><option value="auto">按画风自动</option><option value="guofeng">古风</option><option value="light">轻快</option><option value="none">无音乐</option></select>
+            <button type="button" class="btn-audition" id="auditionMusicBtn" onclick="auditionMusic()" title="试听当前选中的背景音乐">🎵 试听</button>
+          </div>
+        </div>
         <div class="opt-item opt-checks"><label><input type="checkbox" id="sfx" checked> 转场音效</label>
           <label title="先生成剧本，修改满意后再生成画面"><input type="checkbox" id="review"> 先审稿再出图</label></div>
       </div>
@@ -1346,6 +1364,98 @@
       }
     }
 
+    // ---------- 试听音频控制 ----------
+    let currentAuditionAudio = null;
+    let currentAuditionBtn = null;
+
+    function stopAudition() {
+      if (currentAuditionAudio) {
+        currentAuditionAudio.pause();
+        currentAuditionAudio = null;
+      }
+      if (currentAuditionBtn) {
+        currentAuditionBtn.classList.remove('playing');
+        const isMusic = currentAuditionBtn.id === 'auditionMusicBtn';
+        currentAuditionBtn.innerHTML = isMusic ? '🎵 试听' : '🔊 试听';
+        currentAuditionBtn = null;
+      }
+    }
+
+    async function auditionVoice(lang) {
+      const isZh = (lang === 'zh');
+      const btn = document.getElementById(isZh ? 'auditionZhBtn' : 'auditionEnBtn');
+      const select = document.getElementById(isZh ? 'voiceZh' : 'voiceEn');
+      const voice = select ? select.value : '';
+      const rateInput = document.getElementById('rate');
+      const rate = parseInt(rateInput ? rateInput.value : '0', 10);
+
+      if (currentAuditionBtn === btn) {
+        stopAudition();
+        return;
+      }
+      stopAudition();
+
+      btn.classList.add('playing');
+      btn.innerHTML = '⏳ 加载...';
+      currentAuditionBtn = btn;
+
+      try {
+        const url = `/api/voice/audition?lang=${encodeURIComponent(lang)}&voice=${encodeURIComponent(voice)}&rate=${rate}&t=${Date.now()}`;
+        const audio = new Audio(url);
+        currentAuditionAudio = audio;
+
+        audio.onplay = () => {
+          btn.innerHTML = '⏹️ 停止';
+        };
+        audio.onended = () => {
+          stopAudition();
+        };
+        audio.onerror = () => {
+          stopAudition();
+          showToast('试听音频加载失败，请重试');
+        };
+
+        await audio.play();
+      } catch (err) {
+        stopAudition();
+        showToast('试听播放失败: ' + err.message);
+      }
+    }
+
+    function auditionMusic() {
+      const btn = document.getElementById('auditionMusicBtn');
+      const sel = document.getElementById('music').value;
+      if (sel === 'none') {
+        showToast('当前已选择「无音乐」');
+        return;
+      }
+      if (currentAuditionBtn === btn) {
+        stopAudition();
+        return;
+      }
+      stopAudition();
+
+      let file = 'music_guofeng_1.m4a';
+      if (sel === 'light') file = 'music_light_1.m4a';
+      else if (sel === 'auto') file = (currentMode === 'kids' ? 'music_light_1.m4a' : 'music_guofeng_1.m4a');
+
+      btn.classList.add('playing');
+      btn.innerHTML = '⏹️ 停止';
+      currentAuditionBtn = btn;
+
+      const audio = new Audio(`/assets/audio/${file}`);
+      currentAuditionAudio = audio;
+      audio.onended = () => stopAudition();
+      audio.onerror = () => {
+        stopAudition();
+        showToast('背景音乐加载失败');
+      };
+      audio.play().catch(e => {
+        stopAudition();
+        showToast('播放失败: ' + e.message);
+      });
+    }
+
     // ---------- 生成选项 / 审稿 / 单镜重绘 ----------
     let genAspect = '16:9';
     document.querySelectorAll('#aspectSeg span').forEach(el => el.onclick = () => {
@@ -1355,6 +1465,9 @@
         const o = await (await fetch('/api/options')).json();
         const fill = (id, list) => { document.getElementById(id).innerHTML = '<option value="">默认</option>' + list.map(v => `<option value="${v[0]}">${v[1]}</option>`).join(''); };
         fill('voiceZh', o.voices.zh); fill('voiceEn', o.voices.en);
+        document.getElementById('voiceZh').onchange = stopAudition;
+        document.getElementById('voiceEn').onchange = stopAudition;
+        document.getElementById('music').onchange = stopAudition;
       } catch (e) { console.error(e); }
     }
     function getGenOpts() {
