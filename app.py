@@ -805,5 +805,6 @@ def admin_page(): return FileResponse(os.path.join(BASE, "static", "admin.html")
 @app.get("/login")
 def login_page(): return FileResponse(os.path.join(BASE, "static", "login.html"))
 
+app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static_dir")
 app.mount("/assets", StaticFiles(directory=os.path.join(BASE, "assets")), name="assets")
 app.mount("/", StaticFiles(directory=os.path.join(BASE, "static"), html=True), name="static")
