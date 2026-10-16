@@ -189,6 +189,7 @@
       gap: 6px;
       transition: all 0.2s ease;
       user-select: none;
+      white-space: nowrap;
     }
     .lang-btn:hover { background: #F1F5F9; border-color: #CBD5E1; }
     .lang-btn.active {
@@ -204,6 +205,11 @@
       padding: 1px 6px;
       border-radius: 10px;
       font-weight: 700;
+      white-space: nowrap;
+    }
+    @media (max-width: 820px) {
+      .lang-selector-group { flex-direction: column; gap: 8px; }
+      .lang-btn { justify-content: flex-start; padding: 10px 14px; }
     }
 
     /* 物料切换选项卡 */
@@ -336,14 +342,179 @@
       transform: translateY(-1px);
     }
 
-    .opt-panel{display:flex;flex-wrap:wrap;gap:12px 18px;margin:4px 0 14px;padding:12px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;font-size:13px}
-    .opt-item{display:flex;flex-direction:column;gap:5px;min-width:120px}.opt-item>label{color:#64748B;font-weight:600}
-    .opt-item select{padding:6px 8px;border:1px solid #CBD5E1;border-radius:7px;background:#fff;font-size:13px}
-    .btn-audition{padding:5px 9px;font-size:12px;font-weight:600;border:1px solid #CBD5E1;background:#fff;color:#334155;border-radius:7px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:3px;transition:all .15s ease;flex-shrink:0;height:31px;box-sizing:border-box}
-    .btn-audition:hover{background:#F1F5F9;border-color:#94A3B8;color:#0F172A}
-    .btn-audition.playing{background:#EFF6FF;border-color:#3B82F6;color:#1D4ED8}
-    .opt-checks{justify-content:flex-end;gap:6px}.opt-checks label{color:#334155!important;font-weight:500!important;cursor:pointer}
-    .seg{display:flex;border:1px solid #CBD5E1;border-radius:7px;overflow:hidden}.seg span{padding:6px 10px;cursor:pointer;background:#fff}.seg span.on{background:#1B5E20;color:#fff}
+    /* 选项面板重构：清晰两行分组，彻底消除孤立掉落断行 */
+    .opt-panel {
+      margin: 6px 0 16px;
+      padding: 16px 18px;
+      background: #F8FAFC;
+      border: 1.5px solid #E2E8F0;
+      border-radius: 12px;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .opt-row {
+      display: grid;
+      gap: 16px;
+      align-items: flex-end;
+    }
+    .opt-row-1 {
+      grid-template-columns: 1.15fr 1.35fr 1.35fr 1.15fr;
+    }
+    .opt-row-2 {
+      grid-template-columns: 1.5fr 2.5fr;
+      padding-top: 13px;
+      border-top: 1px dashed #E2E8F0;
+    }
+    .opt-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .opt-item > label {
+      color: #475569;
+      font-weight: 600;
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .opt-item select {
+      padding: 7px 10px;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 8px;
+      background: #fff;
+      font-size: 13px;
+      color: #1E293B;
+      outline: none;
+      transition: border-color 0.2s;
+      width: 100%;
+    }
+    .opt-item select:focus {
+      border-color: #2E7D32;
+    }
+    .opt-input-combo {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      width: 100%;
+    }
+    .btn-audition {
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1.5px solid #CBD5E1;
+      background: #fff;
+      color: #334155;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all .15s ease;
+      flex-shrink: 0;
+      height: 33px;
+      box-sizing: border-box;
+      user-select: none;
+    }
+    .btn-audition:hover {
+      background: #F1F5F9;
+      border-color: #94A3B8;
+      color: #0F172A;
+    }
+    .btn-audition.playing {
+      background: #EFF6FF;
+      border-color: #3B82F6;
+      color: #1D4ED8;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    }
+    .seg {
+      display: flex;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #FFF;
+      height: 33px;
+      box-sizing: border-box;
+    }
+    .seg span {
+      flex: 1;
+      padding: 0 8px;
+      cursor: pointer;
+      background: #FFF;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .seg span.on {
+      background: #1B5E20;
+      color: #FFF;
+    }
+    .opt-range-wrap {
+      display: flex;
+      align-items: center;
+      height: 33px;
+    }
+    .opt-range-wrap input[type="range"] {
+      width: 100%;
+      accent-color: #2E7D32;
+      cursor: pointer;
+    }
+    .opt-pill-group {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      height: 33px;
+      flex-wrap: wrap;
+    }
+    .opt-pill-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #FFF;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #334155;
+      user-select: none;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .opt-pill-label:hover {
+      border-color: #94A3B8;
+      background: #F8FAFC;
+    }
+    .opt-pill-label input[type="checkbox"] {
+      accent-color: #2E7D32;
+      cursor: pointer;
+      margin: 0;
+    }
+    .opt-hint-pill {
+      margin-left: auto;
+      font-size: 12px;
+      color: #64748B;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    @media (max-width: 920px) {
+      .opt-row-1 { grid-template-columns: 1fr 1fr; }
+      .opt-row-2 { grid-template-columns: 1fr; }
+      .opt-hint-pill { display: none; }
+    }
     .rv-mask{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:flex-start;justify-content:center;z-index:999;overflow:auto;padding:30px 12px}
     .rv-box{background:#fff;border-radius:14px;max-width:860px;width:100%;padding:22px 24px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
     .rv-box h3{margin:0 0 6px}.rv-tip{color:#64748B;font-size:13px;margin-bottom:12px}
@@ -637,29 +808,66 @@
 
       <!-- 画幅 / 配音 / 音乐 / 审稿 选项 -->
       <div class="opt-panel">
-        <div class="opt-item"><label>画幅</label>
-          <div class="seg" id="aspectSeg"><span data-v="16:9" class="on">🖥️ 横屏 16:9</span><span data-v="9:16">📱 竖屏 9:16</span></div></div>
-        <div class="opt-item"><label>中文配音</label>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="voiceZh" style="flex:1;min-width:130px;"></select>
-            <button type="button" class="btn-audition" id="auditionZhBtn" onclick="auditionVoice('zh')" title="试听当前选中的中文配音">🔊 试听</button>
+        <!-- 第 1 行：画幅与配音朗读核心选项 -->
+        <div class="opt-row opt-row-1">
+          <div class="opt-item">
+            <label><span>画幅比例</span></label>
+            <div class="seg" id="aspectSeg">
+              <span data-v="16:9" class="on">🖥️ 横屏 16:9</span>
+              <span data-v="9:16">📱 竖屏 9:16</span>
+            </div>
+          </div>
+          <div class="opt-item">
+            <label><span>中文配音</span></label>
+            <div class="opt-input-combo">
+              <select id="voiceZh"></select>
+              <button type="button" class="btn-audition" id="auditionZhBtn" onclick="auditionVoice('zh')" title="试听当前选中的中文配音">🔊 试听</button>
+            </div>
+          </div>
+          <div class="opt-item">
+            <label><span>英文配音</span></label>
+            <div class="opt-input-combo">
+              <select id="voiceEn"></select>
+              <button type="button" class="btn-audition" id="auditionEnBtn" onclick="auditionVoice('en')" title="试听当前选中的英文配音">🔊 试听</button>
+            </div>
+          </div>
+          <div class="opt-item">
+            <label><span>朗读语速</span><b id="rateVal" style="color:#2E7D32;">0%</b></label>
+            <div class="opt-range-wrap">
+              <input type="range" id="rate" min="-30" max="30" step="5" value="0" oninput="document.getElementById('rateVal').innerText=(this.value>0?'+':'')+this.value+'%'">
+            </div>
           </div>
         </div>
-        <div class="opt-item"><label>英文配音</label>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="voiceEn" style="flex:1;min-width:130px;"></select>
-            <button type="button" class="btn-audition" id="auditionEnBtn" onclick="auditionVoice('en')" title="试听当前选中的英文配音">🔊 试听</button>
+
+        <!-- 第 2 行：配乐氛围与制作流程高级选项 -->
+        <div class="opt-row opt-row-2">
+          <div class="opt-item">
+            <label><span>背景音乐氛围</span></label>
+            <div class="opt-input-combo">
+              <select id="music">
+                <option value="auto">按画风自动匹配</option>
+                <option value="guofeng">国风古韵</option>
+                <option value="light">轻快欢脱</option>
+                <option value="none">无背景音乐</option>
+              </select>
+              <button type="button" class="btn-audition" id="auditionMusicBtn" onclick="auditionMusic()" title="试听当前选中的背景音乐">🎵 试听</button>
+            </div>
+          </div>
+          <div class="opt-item">
+            <label><span>制作流程控制</span></label>
+            <div class="opt-pill-group">
+              <label class="opt-pill-label" title="在分镜头切换时加入生动的过场特效音">
+                <input type="checkbox" id="sfx" checked> 转场音效
+              </label>
+              <label class="opt-pill-label" title="先生成文案剧本和分镜规划，满意后再启动批量出图渲染">
+                <input type="checkbox" id="review"> ✍️ 先审稿再出图
+              </label>
+              <div class="opt-hint-pill">
+                <span>💡 配音与音乐支持出片前即时试听</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="opt-item"><label>语速 <b id="rateVal">0%</b></label><input type="range" id="rate" min="-30" max="30" step="5" value="0" oninput="document.getElementById('rateVal').innerText=(this.value>0?'+':'')+this.value+'%'"></div>
-        <div class="opt-item"><label>背景音乐</label>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="music"><option value="auto">按画风自动</option><option value="guofeng">古风</option><option value="light">轻快</option><option value="none">无音乐</option></select>
-            <button type="button" class="btn-audition" id="auditionMusicBtn" onclick="auditionMusic()" title="试听当前选中的背景音乐">🎵 试听</button>
-          </div>
-        </div>
-        <div class="opt-item opt-checks"><label><input type="checkbox" id="sfx" checked> 转场音效</label>
-          <label title="先生成剧本，修改满意后再生成画面"><input type="checkbox" id="review"> 先审稿再出图</label></div>
       </div>
 
       <div class="input-group">
