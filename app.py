@@ -18,8 +18,18 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "0") == "1"
 LOGIN_MAX, LOGIN_WINDOW = int(os.getenv("LOGIN_MAX_ATTEMPTS", "10")), int(os.getenv("LOGIN_WINDOW_SEC", "900"))
 COOKIE = "session"
 
-app = FastAPI(title="一点通短视频")
+app = FastAPI(title="科影工坊 · KeyingStudio")
 Q = queue.Queue(); LOCK = threading.Lock()
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon_ico():
+    """返回网站浏览器标签栏图标 (ICO格式)"""
+    return FileResponse(os.path.join(BASE, "static", "favicon.ico"))
+
+@app.get("/favicon.png", include_in_schema=False)
+async def favicon_png():
+    """返回网站浏览器标签栏图标 (PNG高清格式)"""
+    return FileResponse(os.path.join(BASE, "static", "favicon.png"))
 
 def db():
     c = sqlite3.connect(DB, timeout=30, check_same_thread=False); c.row_factory = sqlite3.Row; return c
@@ -764,7 +774,7 @@ VOICE_SAMPLE_TEXTS = {
     "zh-CN-YunjianNeural": "天地玄黄，宇宙洪荒。为你解读流传千年的历史传奇。",
     "zh-CN-XiaoyiNeural": "小朋友，快来跟我一起探索神奇又好玩的大自然吧！",
     "zh-CN-YunxiaNeural": "你好呀！今天又有什么好玩的科学小秘密在等着我们呢？",
-    "en-US-JennyNeural": "Hello, I'm Jenny. Welcome to Yidiantong Shorts generator.",
+    "en-US-JennyNeural": "Hello, I'm Jenny. Welcome to KeyingStudio video generator.",
     "en-US-GuyNeural": "Hi there, I'm Guy. Let's explore the science and stories behind the world.",
     "en-US-AriaNeural": "Hello, this is Aria. Let's discover amazing facts and ancient wisdom together.",
     "en-US-AnaNeural": "Hi, I'm Ana! Are you ready for an exciting journey of discovery?",
@@ -776,7 +786,7 @@ def audition_voice(voice: str = "", lang: str = "zh", rate: int = 0):
     default_voice = "en-US-JennyNeural" if lang == "en" else "zh-CN-XiaoxiaoNeural"
     v = voice if voice in pipeline.VOICE_IDS else default_voice
     rate_clamped = max(-30, min(30, rate))
-    sample_text = VOICE_SAMPLE_TEXTS.get(v, "Hello, welcome!" if lang == "en" else "你好，欢迎使用一点通短视频创作工作台。")
+    sample_text = VOICE_SAMPLE_TEXTS.get(v, "Hello, welcome!" if lang == "en" else "你好，欢迎使用科影工坊创作工作台。")
 
     audition_dir = os.path.join(OUT, "_audition")
     os.makedirs(audition_dir, exist_ok=True)

@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🎨 一点通短视频（Yidiantong Shorts）
+# 🎬 科影工坊（KeyingStudio）
 
-**输入一个成语或科普问题，一键生成约 1 分钟的配音字幕短视频，并同时产出中文版 + 英文出海版和抖音 / TikTok 发布文案。**
+**输入一个科普问题或传统成语，一键生成约 1 分钟的高清画质配音字幕短视频，同时产出中文版 + 纯英文出海版和抖音 / TikTok 发布文案。**
 
 [中文](#-项目简介) · [English](#-english) · [MIT License](LICENSE)
 
@@ -223,7 +223,7 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 
 ## 🌏 English
 
-**Yidiantong Shorts (一点通短视频)** — type a Chinese idiom or a science question and get a ~1-minute, 1280×720 narrated, subtitled video, in a **Chinese version and an English version for global platforms**, plus ready-to-paste Douyin / TikTok titles, descriptions and hashtags.
+**KeyingStudio (科影工坊)** — type a science question or a Chinese idiom and get a ~1-minute, 1280×720 narrated, subtitled video, in a **Chinese version and an English version for global platforms**, plus ready-to-paste Douyin / TikTok titles, descriptions and hashtags.
 
 **Features**
 - Automatic pipeline: script → illustrations → narration → Ken Burns motion + burned-in subtitles (FFmpeg).
