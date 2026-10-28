@@ -121,7 +121,7 @@ DOUYIN_KNOWLEDGE_LIBRARY = {
 }
 
 def get_douyin_publish_info(topic: str, kind: str = "chengyu", style: str = "ink", script: dict | None = None) -> dict:
-    """根据科普/成语主题生成抖音平台专属发布物料（标题严格控制在30字内、作品描述与热门话题标签）。
+    """根据科普/成语主题生成国内多平台（抖音/视频号/快手/小红书）通用发布物料（标题严格控制在30字内、作品描述与热门话题标签）。
     优先读取大模型生成专属物料，其次匹配主题知识库，最后基于分镜剧本内容智能动态提炼。
     """
     clean_topic = re.sub(r"[，。？?!！\s、：“”‘’（）《》…—,.!?~～]+", "", topic)
@@ -224,7 +224,7 @@ def filter_uncreated_topics(data_dict: dict) -> dict:
     return filtered
 
 def job_dict(r):
-    """将数据库任务记录转换为前端展示所需的标准字典对象，并自动附加抖音与 TikTok 双语发布物料与视频播放链接。"""
+    """将数据库任务记录转换为前端展示所需的标准字典对象，并自动附加国内全平台（抖音/视频号/快手/小红书）与 TikTok 双语发布物料与视频播放链接。"""
     d = dict(r)
     d["log"] = json.loads(d["log"] or "[]")
     res = json.loads(d.pop("result") or "{}")

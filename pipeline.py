@@ -178,8 +178,8 @@ def llm_script(topic, kind):
               "1. 包含6个场景，每个场景写一句中文旁白（20-40字）和对应的地道纯正英文旁白（narration_en，15-25个单词）；\n"
               "2. 最后一个场景点明核心科学原理或哲理道理；\n"
               f"3. 【AI画面生成约束（极为重要）】：同时为每个场景写一句英文画面描述（image_prompt），专用于百炼AI绘图：\n{style_guide}\n"
-              "4. 必须同时定制专属的【抖音中文发布物料】与【TikTok英文发布物料】：\n"
-              "   - publish_info（中文）：爆款标题（<=30字）、通俗看点描述（50-80字）、5个中文热门标签；\n"
+              "4. 必须同时定制专属的【国内全平台通用中文发布物料（适配抖音/视频号/快手/小红书）】与【TikTok英文发布物料】：\n"
+              "   - publish_info（中文）：爆款吸睛标题（<=30字，适合视频号、快手、抖音封面与文案）、通俗看点描述（50-80字）、5个国内短视频热门话题标签；\n"
               "   - publish_info_en（英文）：Viral TikTok Title (<=60字符)、Engaging Description (40-60 words)、5个热门英文标签（如 #LearnOnTikTok #ScienceFacts 等）。\n"
               '只输出JSON：{"title":"","subtitle":"","title_en":"","subtitle_en":"","publish_info":{"title":"","description":"","tags":["#标签1","#标签2"]},"publish_info_en":{"title":"","description":"","tags":["#Tag1","#Tag2"]},"scenes":[{"narration":"","narration_en":"","image_prompt":""}]}')
     prompt += ('\n另外在 JSON 顶层增加 "character" 字段：用一句英文写出贯穿全片的主角设定卡'

@@ -2,7 +2,7 @@
 
 # 🎬 科影工坊（KeyingStudio）
 
-**输入一个科普问题或传统成语，一键生成约 1 分钟的高清画质配音字幕短视频，同时产出中文版 + 纯英文出海版和抖音 / TikTok 发布文案。**
+**输入一个科普问题或传统成语，一键生成约 1 分钟的高清画质配音字幕短视频，同时产出中文版 + 纯英文出海版以及适配国内全平台（抖音/微信视频号/快手/小红书）和海外 TikTok 的专属发布文案。**
 
 [中文](#-项目简介) · [English](#-english) · [MIT License](LICENSE)
 
@@ -29,7 +29,7 @@
 
 - **全自动成片**：标题卡 + 5~6 个分镜，缓慢推镜动画，逐句烧录字幕，约 60 秒。
 - **中英独立双版本**：一次生成插画，同时压制「纯中文版」和「英文出海版」（英文配音、英文字幕与标题卡）；也可只生成其中一种。再次生成同一主题会继承已有插画，保证两版画面一致。
-- **抖音 / TikTok 发布助手**：自动生成中英文标题、描述和话题标签，一键复制。
+- **全平台发布助手（国内全平台 + 海外 TikTok）**：自动生成适配抖音、微信视频号、快手、小红书与 TikTok 的爆款标题、描述和热门话题标签，一键复制；内置国内四大主流短视频平台创作者后台一键直达入口。
 - **内置选题库**：幼儿 80 题、成语 300+ 题、科普 300 题，自动过滤已创作的选题。
 - **可插拔 AI 服务**：剧本用 OpenAI 兼容大模型（默认阿里百炼 `qwen-plus`）；插画支持百炼 `qwen-image` / 万相 `wanx` / OpenAI 兼容接口；配音用通义 `qwen3-tts-flash`，失败自动回退到免费的 edge-tts（中文 `zh-CN-XiaoxiaoNeural`，英文 `en-US-JennyNeural`）。
 - **生图风控自愈**：遇到内容审核拦截时，自动用大模型改写提示词并分级重试。
@@ -223,7 +223,7 @@ chmod +x run.sh && ./run.sh      # 默认 http://localhost:8080
 
 ## 🌏 English
 
-**KeyingStudio (科影工坊)** — type a science question or a Chinese idiom and get a ~1-minute, 1280×720 narrated, subtitled video, in a **Chinese version and an English version for global platforms**, plus ready-to-paste Douyin / TikTok titles, descriptions and hashtags.
+**KeyingStudio (科影工坊)** — type a science question or a Chinese idiom and get a ~1-minute, 1280×720 narrated, subtitled video, in a **Chinese version and an English version for global platforms**, plus ready-to-paste titles, descriptions and hashtags for Douyin, WeChat Channels, Kuaishou, Xiaohongshu and TikTok.
 
 **Features**
 - Automatic pipeline: script → illustrations → narration → Ken Burns motion + burned-in subtitles (FFmpeg).

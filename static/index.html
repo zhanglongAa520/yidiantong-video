@@ -699,10 +699,25 @@
     }
     .action-link.secondary:hover { background: #F1F5F9; }
     .action-link.douyin {
-      background: #FE2C55;
+      background: #161823;
       color: #FFFFFF;
     }
-    .action-link.douyin:hover { background: #E02047; text-decoration: none; }
+    .action-link.douyin:hover { background: #2E303E; text-decoration: none; }
+    .action-link.wechat {
+      background: #07C160;
+      color: #FFFFFF;
+    }
+    .action-link.wechat:hover { background: #06AD56; text-decoration: none; }
+    .action-link.kuaishou {
+      background: #FF5000;
+      color: #FFFFFF;
+    }
+    .action-link.kuaishou:hover { background: #E04600; text-decoration: none; }
+    .action-link.xhs {
+      background: #FF2442;
+      color: #FFFFFF;
+    }
+    .action-link.xhs:hover { background: #E01B37; text-decoration: none; }
 
     /* 视频在线预览区 */
     .video-preview-box {
@@ -815,7 +830,7 @@
           <span class="badge-rec">首选推荐 · 双成片+双物料</span>
         </div>
         <div id="langCn" class="lang-btn" onclick="switchLang('cn')">
-          <span>🇨🇳 纯中文版（国内抖音/小红书）</span>
+          <span>🇨🇳 纯中文版（抖音/视频号/快手/小红书）</span>
         </div>
         <div id="langEn" class="lang-btn" onclick="switchLang('en')">
           <span>🇺🇸 纯英文出海版（TikTok/Shorts）</span>
@@ -912,11 +927,22 @@
 
     <!-- 作品库与发布物料卡片 -->
     <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <h3 class="card-title" style="margin-bottom:0;">📂 已生成的科普作品库与抖音发布助手</h3>
-        <a href="https://creator.douyin.com/creator-micro/content/upload" target="_blank" class="action-link douyin">
-          🚀 打开抖音网页端发布 ↗
-        </a>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+        <h3 class="card-title" style="margin-bottom:0;">📂 已生成的科普作品库与多平台发布助手</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <a href="https://creator.douyin.com/creator-micro/content/upload" target="_blank" class="action-link douyin" title="打开抖音创作者服务平台">
+            🚀 抖音 ↗
+          </a>
+          <a href="https://channels.weixin.qq.com/platform/post/create" target="_blank" class="action-link wechat" title="打开微信视频号助手">
+            🟢 视频号 ↗
+          </a>
+          <a href="https://cp.kuaishou.com/article/publish/video" target="_blank" class="action-link kuaishou" title="打开快手创作者服务平台">
+            ⚡ 快手 ↗
+          </a>
+          <a href="https://creator.xiaohongshu.com/publish/publish" target="_blank" class="action-link xhs" title="打开小红书创作服务平台">
+            📕 小红书 ↗
+          </a>
+        </div>
       </div>
       <div id="projectList">加载中...</div>
     </div>
@@ -1167,7 +1193,7 @@
         const originalText = btn.innerText;
         btn.innerText = '✅ 已复制';
         btn.classList.add('copied');
-        showToast(`已成功复制${label}！可直接在抖音后台粘贴使用。`);
+        showToast(`已成功复制${label}！可直接在抖音/视频号/快手等平台粘贴使用。`);
         setTimeout(() => {
           btn.innerText = originalText;
           btn.classList.remove('copied');
@@ -1334,7 +1360,7 @@
               <!-- 双语发布物料盒 -->
               <div class="publish-box">
                 <div class="pub-tabs">
-                  <button class="pub-tab-btn active" onclick="switchPubTab(this, 'pub_cn_${item.id}')">🇨🇳 抖音/小红书中文物料</button>
+                  <button class="pub-tab-btn active" onclick="switchPubTab(this, 'pub_cn_${item.id}')">🇨🇳 抖音/视频号/快手/小红书通用物料</button>
                   <button class="pub-tab-btn" onclick="switchPubTab(this, 'pub_en_${item.id}')">🇺🇸 TikTok英文出海物料</button>
                 </div>
 
